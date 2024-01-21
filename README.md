@@ -1,6 +1,6 @@
 | Build | Support Server |
 |-------|---------|
-| [![CI](https://github.com/immortal-forest/tachiyomi-extensions/workflows/CI/badge.svg?event=push)](https://github.com/immortal-forest/tachiyomi-extensions/actions/workflows/build_push.yml) |
+| [![CI](https://github.com/immortal-forest/tachiyomi-extensions/actions/workflows/build_push.yml/badge.svg)](https://github.com/immortal-forest/tachiyomi-extensions/actions/workflows/build_push.yml) | None |
 
 # ![app icon](./.github/readme-images/app-icon.png)Tachiyomi Extensions
 Tachiyomi is a free and open source manga reader for Android 6.0 and above.
