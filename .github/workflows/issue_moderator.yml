@@ -1,0 +1,69 @@
+name: Issue moderator
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  autoclose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Moderate issues
+        uses: tachiyomiorg/issue-moderator-action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          duplicate-check-enabled: true
+          duplicate-check-label: Source request
+          existing-check-enabled: true
+          existing-check-label: Source request
+          auto-close-rules: |
+            [
+              {
+                "type": "body",
+                "regex": ".*DELETE THIS SECTION IF YOU HAVE READ AND ACKNOWLEDGED IT.*",
+                "message": "The acknowledgment section was not removed."
+              },
+              {
+                "type": "body",
+                "regex": ".*\\* (Tachiyomi version|Android version|Device): \\?.*",
+                "message": "Requested information in the template was not filled out."
+              },
+              {
+                "type": "title",
+                "regex": ".*(Source name|Short description).*",
+                "message": "You did not fill out the description in the title."
+              },
+              {
+                "type": "both",
+                "regex": ".*(hq\\s*dragon|manga\\s*host|supermangas|superhentais|union\\s*mangas|yes\\s*mangas|manhuascan|manhwahot|leitor\\.?net|manga\\s*livre|tsuki\\s*mangas|manga\\s*yabu|mangas\\.in|mangas\\.pw|hentaikai|toptoon\\+?|colamanhua|mangadig|hitomi\\.la|copymanga|neox|1manga\\.co|mangafox\\.fun|mangahere\\.onl|mangakakalot\\.fun|manganel(?!o)|mangaonline\\.fun|mangatoday|manga\\.town|onemanga\\.info|koushoku|comikey).*",
+                "ignoreCase": true,
+                "message": "{match} will not be added back as it is too difficult to maintain. Read #3475 for more information."
+              },
+              {
+                "type": "both",
+                "regex": ".*(komiktap|gourmet\\s*scans|mangawow|hikari\\s*scans|mangagegecesi|knightnoscanlations|ahstudios|mangagecesi|nartag|xxx\\s*yaoi|yaoi\\s*fan\\s*clube|luminous|dragontea|manhwaid\\.org|hunters\\s*scan|reset(?:\\s*|-)scan|manga-flix\\.com|astra\\s*scans|manganoon|manga(?:-|\\s*)pro|coven\\s*scans?|shinobiscans|plot ?twist ?no ?fansub(?: ?scans?)?|plot-twistnf-scans(?:\\.com)?|mhscans).*",
+                "ignoreCase": true,
+                "message": "{match} will not be added back as the scanlator team has requested it to be removed. Read #3475 for more information."
+              },
+              {
+                "type": "both",
+                "regex": ".*(?:fail(?:ed|ure)?|can\\s*(?:no|')?t|unable|get past|(?<!n[o']?t )blocked by|error) (?:to )?(?:bypass|penetrate)?.*cloudfl?are.*",
+                "ignoreCase": true,
+                "message": "Refer to the **Solving Cloudflare issues** section at https://tachiyomi.org/help/guides/troubleshooting/#solving-cloudflare-issues. If it doesn't work, migrate to other sources or wait until they lower their protection."
+              },
+              {
+                "type": "body",
+                "regex": ".*shinigami\\.id.*",
+                "ignoreCase": true,
+                "message": "Duplicate of #15408"
+              },
+              {
+                "type": "body",
+                "regex": ".*olympusscans\\.com.*",
+                "ignoreCase": true,
+                "message": "Duplicate of #15330"
+              }
+            ]
+          auto-close-ignore-label: do-not-autoclose
