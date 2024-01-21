@@ -8,6 +8,18 @@ on:
       - '**.md'
       - '.github/workflows/issue_moderator.yml'
 
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: true
+        default: 'warning'
+        type: choice
+        options:
+        - info
+        - warning
+        - debug
+
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
