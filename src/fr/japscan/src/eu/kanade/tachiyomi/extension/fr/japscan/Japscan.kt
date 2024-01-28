@@ -1,12 +1,16 @@
 package eu.kanade.tachiyomi.extension.fr.japscan
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.SharedPreferences
-import android.net.Uri
-import android.util.Base64
-import android.util.Log
+import android.os.Handler
+import android.os.Looper
+import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
@@ -23,17 +27,20 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
-import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class Japscan : ConfigurableSource, ParsedHttpSource() {
 
@@ -69,6 +76,9 @@ class Japscan : ConfigurableSource, ParsedHttpSource() {
 
     private fun chapterListPref() = preferences.getString(SHOW_SPOILER_CHAPTERS, "hide")
 
+    override fun headersBuilder() = super.headersBuilder()
+        .add("referer", "$baseUrl/")
+
     // Popular
     override fun popularMangaRequest(page: Int): Request {
         return GET("$baseUrl/mangas/", headers)
@@ -100,40 +110,64 @@ class Japscan : ConfigurableSource, ParsedHttpSource() {
     }
 
     // Latest
+    private lateinit var latestDirectory: List<Element>
+
+    override fun fetchLatestUpdates(page: Int): Observable<MangasPage> {
+        return if (page == 1) {
+            client.newCall(latestUpdatesRequest(page))
+                .asObservableSuccess()
+                .map { latestUpdatesParse(it) }
+        } else {
+            Observable.just(parseLatestDirectory(page))
+        }
+    }
+
     override fun latestUpdatesRequest(page: Int): Request {
         return GET(baseUrl, headers)
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val mangas = document.select(latestUpdatesSelector())
+
+        latestDirectory = document.select(latestUpdatesSelector())
             .distinctBy { element -> element.select("a").attr("href") }
-            .map { element ->
-                latestUpdatesFromElement(element)
-            }
-        val hasNextPage = false
-        return MangasPage(mangas, hasNextPage)
+
+        return parseLatestDirectory(1)
     }
 
-    override fun latestUpdatesNextPageSelector(): String? = null
+    private fun parseLatestDirectory(page: Int): MangasPage {
+        val manga = mutableListOf<SManga>()
+        val end = ((page * 24) - 1).let { if (it <= latestDirectory.lastIndex) it else latestDirectory.lastIndex }
 
-    override fun latestUpdatesSelector() = "#chapters h3.text-truncate, #chapters_list h3.text-truncate"
+        for (i in (((page - 1) * 24)..end)) {
+            manga.add(latestUpdatesFromElement(latestDirectory[i]))
+        }
+
+        return MangasPage(manga, end < latestDirectory.lastIndex)
+    }
+
+    override fun latestUpdatesSelector() = "#chapters h3.mb-0"
 
     override fun latestUpdatesFromElement(element: Element): SManga = popularMangaFromElement(element)
+
+    override fun latestUpdatesNextPageSelector(): String = throw UnsupportedOperationException()
 
     // Search
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         if (query.isEmpty()) {
-            val uri = Uri.parse(baseUrl).buildUpon()
-                .appendPath("mangas")
-            filters.forEach { filter ->
-                when (filter) {
-                    is TextField -> uri.appendPath(((page - 1) + filter.state.toInt()).toString())
-                    is PageList -> uri.appendPath(((page - 1) + filter.values[filter.state]).toString())
-                    else -> {}
+            val url = baseUrl.toHttpUrl().newBuilder().apply {
+                addPathSegment("mangas")
+
+                filters.forEach { filter ->
+                    when (filter) {
+                        is TextField -> addPathSegment(((page - 1) + filter.state.toInt()).toString())
+                        is PageList -> addPathSegment(((page - 1) + filter.values[filter.state]).toString())
+                        else -> {}
+                    }
                 }
-            }
-            return GET(uri.toString(), headers)
+            }.build()
+
+            return GET(url, headers)
         } else {
             val formBody = FormBody.Builder()
                 .add("search", query)
@@ -142,38 +176,16 @@ class Japscan : ConfigurableSource, ParsedHttpSource() {
                 .add("X-Requested-With", "XMLHttpRequest")
                 .build()
 
-            try {
-                val searchRequest = POST("$baseUrl/live-search/", searchHeaders, formBody)
-                val searchResponse = client.newCall(searchRequest).execute()
-
-                if (!searchResponse.isSuccessful) {
-                    throw Exception("Code ${searchResponse.code} inattendu")
-                }
-
-                val jsonResult = json.parseToJsonElement(searchResponse.body.string()).jsonArray
-
-                if (jsonResult.isEmpty()) {
-                    Log.d("japscan", "Search not returning anything, using duckduckgo")
-                    throw Exception("Pas de données")
-                }
-
-                return searchRequest
-            } catch (e: Exception) {
-                // Fallback to duckduckgo if the search does not return any result
-                val uri = Uri.parse("https://duckduckgo.com/lite/").buildUpon()
-                    .appendQueryParameter("q", "$query site:$baseUrl/manga/")
-                    .appendQueryParameter("kd", "-1")
-                return GET(uri.toString(), headers)
-            }
+            return POST("$baseUrl/live-search/", searchHeaders, formBody)
         }
     }
 
-    override fun searchMangaNextPageSelector(): String = "li.page-item:last-child:not(li.active),.next_form .navbutton"
+    override fun searchMangaNextPageSelector(): String = "li.page-item:last-child:not(li.active)"
 
-    override fun searchMangaSelector(): String = "div.card div.p-2, a.result-link"
+    override fun searchMangaSelector(): String = "div.card div.p-2"
 
     override fun searchMangaParse(response: Response): MangasPage {
-        if ("live-search" in response.request.url.toString()) {
+        if (response.request.url.pathSegments.first() == "live-search") {
             val jsonResult = json.parseToJsonElement(response.body.string()).jsonArray
 
             val mangaList = jsonResult.map { jsonEl -> searchMangaFromJson(jsonEl.jsonObject) }
@@ -181,29 +193,32 @@ class Japscan : ConfigurableSource, ParsedHttpSource() {
             return MangasPage(mangaList, hasNextPage = false)
         }
 
-        return super.searchMangaParse(response)
+        val baseUrlHost = baseUrl.toHttpUrl().host
+        val document = response.asJsoup()
+        val manga = document
+            .select(searchMangaSelector())
+            .filter { it ->
+                // Filter out ads masquerading as search results
+                it.select("p a").attr("abs:href").toHttpUrl().host == baseUrlHost
+            }
+            .map(::searchMangaFromElement)
+        val hasNextPage = document.selectFirst(searchMangaNextPageSelector()) != null
+
+        return MangasPage(manga, hasNextPage)
     }
 
-    override fun searchMangaFromElement(element: Element): SManga {
-        return if (element.attr("class") == "result-link") {
-            SManga.create().apply {
-                title = element.text().substringAfter(" ").substringBefore(" | JapScan")
-                setUrlWithoutDomain(element.attr("abs:href"))
-            }
-        } else {
-            SManga.create().apply {
-                thumbnail_url = element.select("img").attr("abs:src")
-                element.select("p a").let {
-                    title = it.text()
-                    url = it.attr("href")
-                }
-            }
+    override fun searchMangaFromElement(element: Element) = SManga.create().apply {
+        thumbnail_url = element.select("img").attr("abs:src")
+        element.select("p a").let {
+            title = it.text()
+            url = it.attr("href")
         }
     }
 
     private fun searchMangaFromJson(jsonObj: JsonObject): SManga = SManga.create().apply {
-        title = jsonObj["name"]!!.jsonPrimitive.content
         url = jsonObj["url"]!!.jsonPrimitive.content
+        title = jsonObj["name"]!!.jsonPrimitive.content
+        thumbnail_url = baseUrl + jsonObj["image"]!!.jsonPrimitive.content
     }
 
     override fun mangaDetailsParse(document: Document): SManga {
@@ -250,70 +265,73 @@ class Japscan : ConfigurableSource, ParsedHttpSource() {
         return chapter
     }
 
-    private fun parseChapterDate(date: String): Long {
-        return try {
-            dateFormat.parse(date)?.time ?: 0
-        } catch (e: ParseException) {
-            0L
-        }
-    }
+    private fun parseChapterDate(date: String) = runCatching {
+        dateFormat.parse(date)!!.time
+    }.getOrDefault(0L)
 
-    private val decodingStringsRe: Regex = Regex("""'([\dA-Z]{62})'""", RegexOption.IGNORE_CASE)
-
-    private val sortedLookupString: List<Char> = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".toCharArray().toList()
-
+    @SuppressLint("SetJavaScriptEnabled")
     override fun pageListParse(document: Document): List<Page> {
-        /*
-            JapScan stores chapter metadata in a `#data` element, and in the `data-data` attribute.
+        val interfaceName = randomString()
+        val zjsElement = document.selectFirst("script[src*=/zjs/]")
+            ?: throw Exception("ZJS not found")
+        val dataElement = document.selectFirst("#data")
+            ?: throw Exception("Chapter data not found")
+        val minDoc = Document.createShell(document.location())
+        val minDocBody = minDoc.body()
 
-            This data is scrambled base64, and to unscramble it this code searches in the ZJS for
-            two strings of length 62 (base64 minus `+` and `/`), creating a character map.
+        minDocBody.appendChild(dataElement)
+        minDocBody.append(
+            """
+            <script>
+                const _parse = JSON.parse;
 
-            Since figuring out how to properly map characters would be more effort than I want to
-            put in, this just flips around the charsets if the first attempt didn't succeed.
-         */
-        val zjsurl = document.getElementsByTag("script").first {
-            it.attr("src").contains("zjs", ignoreCase = true)
-        }.attr("src")
-        Log.d("japscan", "ZJS at $zjsurl")
-        val zjs = client.newCall(GET(baseUrl + zjsurl, headers)).execute().body.string()
+                JSON.parse = function(...args) {
+                    window.$interfaceName.passPayload(args[0]);
+                    return _parse(...args);
+                };
+            </script>
+            """.trimIndent(),
+        )
+        minDocBody.appendChild(zjsElement)
 
-        val stringLookupTables = decodingStringsRe.findAll(zjs).mapNotNull {
-            it.groupValues[1].takeIf {
-                it.toCharArray().sorted() == sortedLookupString
+        val handler = Handler(Looper.getMainLooper())
+        val latch = CountDownLatch(1)
+        val jsInterface = JsInterface(latch)
+        var webView: WebView? = null
+
+        handler.post {
+            val innerWv = WebView(Injekt.get<Application>())
+
+            webView = innerWv
+            innerWv.settings.javaScriptEnabled = true
+            innerWv.settings.blockNetworkImage = true
+            innerWv.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            innerWv.addJavascriptInterface(jsInterface, interfaceName)
+
+            innerWv.loadDataWithBaseURL(
+                document.location(),
+                minDoc.outerHtml(),
+                "text/html",
+                "UTF-8",
+                null,
+            )
+        }
+
+        latch.await(5, TimeUnit.SECONDS)
+        handler.post { webView?.destroy() }
+
+        if (latch.count == 1L) {
+            throw Exception("Timed out decrypting image links")
+        }
+
+        val baseUrlHost = baseUrl.toHttpUrl().host
+
+        return jsInterface
+            .images
+            .filterNot { it.toHttpUrl().host == baseUrlHost } // Pages not served through their CDN are probably ads
+            .mapIndexed { i, url ->
+                Page(i, imageUrl = url)
             }
-        }.toList()
-
-        if (stringLookupTables.size != 2) {
-            throw Exception("Attendait 2 chaînes de recherche dans ZJS, a trouvé ${stringLookupTables.size}")
-        }
-        Log.d("japscan", "lookup tables: $stringLookupTables")
-
-        val scrambledData = document.getElementById("data")!!.attr("data-data")
-
-        for (i in 0..1) {
-            Log.d("japscan", "descramble attempt $i")
-            val otherIndice = if (i == 0) 1 else 0
-            val lookupTable = stringLookupTables[i].zip(stringLookupTables[otherIndice]).toMap()
-            try {
-                val unscrambledData = scrambledData.map { lookupTable[it] ?: it }.joinToString("")
-                if (!unscrambledData.startsWith("ey")) {
-                    // `ey` is the Base64 representation of a curly bracket. Since we're expecting a
-                    // JSON object, we're counting this attempt as failed if it doesn't start with a
-                    // curly bracket.
-                    continue
-                }
-                val decoded = Base64.decode(unscrambledData, Base64.DEFAULT).toString(Charsets.UTF_8)
-
-                val data = json.parseToJsonElement(decoded).jsonObject
-
-                return data["imagesLink"]!!.jsonArray.mapIndexed { idx, it ->
-                    Page(idx, imageUrl = it.jsonPrimitive.content)
-                }
-            } catch (_: Throwable) {}
-        }
-
-        throw Exception("Les deux tentatives de désembrouillage ont échoué")
     }
 
     override fun imageUrlParse(document: Document): String = ""
@@ -325,14 +343,14 @@ class Japscan : ConfigurableSource, ParsedHttpSource() {
 
     override fun getFilterList(): FilterList {
         val totalPages = pageNumberDoc?.select("li.page-item:last-child a")?.text()
-        val pagelist = mutableListOf<Int>()
+        val pageList = mutableListOf<Int>()
         return if (!totalPages.isNullOrEmpty()) {
             for (i in 0 until totalPages.toInt()) {
-                pagelist.add(i + 1)
+                pageList.add(i + 1)
             }
             FilterList(
                 Filter.Header("Page alphabétique"),
-                PageList(pagelist.toTypedArray()),
+                PageList(pageList.toTypedArray()),
             )
         } else {
             FilterList(
@@ -362,5 +380,26 @@ class Japscan : ConfigurableSource, ParsedHttpSource() {
             }
         }
         screen.addPreference(chapterListPref)
+    }
+
+    private fun randomString(length: Int = 10): String {
+        val charPool = ('a'..'z') + ('A'..'Z')
+        return List(length) { charPool.random() }.joinToString("")
+    }
+
+    internal class JsInterface(private val latch: CountDownLatch) {
+        private val json: Json by injectLazy()
+
+        var images: List<String> = listOf()
+            private set
+
+        @JavascriptInterface
+        @Suppress("UNUSED")
+        fun passPayload(rawData: String) {
+            val data = json.parseToJsonElement(rawData).jsonObject
+
+            images = data["imagesLink"]!!.jsonArray.map { it.jsonPrimitive.content }
+            latch.countDown()
+        }
     }
 }

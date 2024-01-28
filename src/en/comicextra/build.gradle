@@ -1,9 +1,5 @@
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-
 ext {
     extName = 'ComicExtra'
-    pkgNameSuffix = 'en.comicextra'
     extClass = '.ComicExtra'
     extVersionCode = 14
 }

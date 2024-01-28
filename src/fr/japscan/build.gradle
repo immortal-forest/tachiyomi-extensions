@@ -1,12 +1,7 @@
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-apply plugin: 'kotlinx-serialization'
-
 ext {
     extName = 'Japscan'
-    pkgNameSuffix = 'fr.japscan'
     extClass = '.Japscan'
-    extVersionCode = 39
+    extVersionCode = 44
 }
 
 apply from: "$rootDir/common.gradle"

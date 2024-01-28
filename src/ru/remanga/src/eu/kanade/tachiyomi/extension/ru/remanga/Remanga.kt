@@ -197,7 +197,7 @@ class Remanga : ConfigurableSource, HttpSource() {
         if (preferences.getBoolean(isLib_PREF, false)) {
             url.addQueryParameter("exclude_bookmarks", "1")
         }
-        return GET(url.toString(), headers)
+        return GET(url.build(), headers)
     }
 
     override fun popularMangaParse(response: Response): MangasPage = searchMangaParse(response)
@@ -207,7 +207,7 @@ class Remanga : ConfigurableSource, HttpSource() {
         if (preferences.getBoolean(isLib_PREF, false)) {
             url.addQueryParameter("exclude_bookmarks", "1")
         }
-        return GET(url.toString(), headers)
+        return GET(url.build(), headers)
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage = searchMangaParse(response)
@@ -307,8 +307,7 @@ class Remanga : ConfigurableSource, HttpSource() {
                             throw Exception("Пользователь не найден, необходима авторизация через WebView\uD83C\uDF0E")
                         }
                         val TypeQ = getMyList()[filter.state].id
-                        val UserProfileUrl = "$baseUrl/api/users/$USER_ID/bookmarks/?type=$TypeQ&page=$page".toHttpUrl().newBuilder()
-                        return GET(UserProfileUrl.toString(), headers)
+                        return GET("$baseUrl/api/users/$USER_ID/bookmarks/?type=$TypeQ&page=$page", headers)
                     }
                 }
                 is RequireChapters -> {
@@ -329,7 +328,7 @@ class Remanga : ConfigurableSource, HttpSource() {
             url.addQueryParameter("exclude_bookmarks", "1")
         }
 
-        return GET(url.toString(), headers)
+        return GET(url.build(), headers)
     }
 
     private fun parseStatus(status: Int): Int {
@@ -534,7 +533,7 @@ class Remanga : ConfigurableSource, HttpSource() {
             this
         }
 
-    override fun chapterListParse(response: Response) = throw UnsupportedOperationException("chapterListParse(response: Response, manga: SManga)")
+    override fun chapterListParse(response: Response) = throw UnsupportedOperationException()
 
     private fun chapterListParse(response: Response, manga: SManga, exChapters: List<ExBookDto>): List<SChapter> {
         val chapters = json.decodeFromString<SeriesWrapperDto<List<BookDto>>>(response.body.string()).content
@@ -619,8 +618,8 @@ class Remanga : ConfigurableSource, HttpSource() {
             }
             return try {
                 val page = json.decodeFromString<SeriesWrapperDto<PageDto>>(body)
-                page.content.pages.filter { it.height > heightEmptyChunks }.map {
-                    Page(it.page, "", fixLink(it.link))
+                page.content.pages.filter { it.height > heightEmptyChunks }.mapIndexed { index, it ->
+                    Page(index, "", fixLink(it.link))
                 }
             } catch (e: SerializationException) {
                 val page = json.decodeFromString<SeriesWrapperDto<ChunksPageDto>>(body)
@@ -635,7 +634,7 @@ class Remanga : ConfigurableSource, HttpSource() {
         }
     }
 
-    override fun pageListParse(response: Response): List<Page> = throw UnsupportedOperationException("pageListParse(response: Response, urlRequest: String)")
+    override fun pageListParse(response: Response): List<Page> = throw UnsupportedOperationException()
 
     override fun pageListRequest(chapter: SChapter): Request {
         return if (chapter.scanlator.equals("exmanga")) {

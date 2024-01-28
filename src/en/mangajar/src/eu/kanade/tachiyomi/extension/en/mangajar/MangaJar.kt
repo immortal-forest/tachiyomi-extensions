@@ -9,7 +9,7 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.nodes.Document
@@ -69,7 +69,7 @@ class MangaJar : ParsedHttpSource() {
         val genreFilter = filterList.findInstance<GenreList>()
         val genre = genreFilter?.let { f -> f.values[f.state] }
 
-        val url = (if (genre!!.isEmpty()) "$baseUrl/search" else "$baseUrl/genre/$genre").toHttpUrlOrNull()!!.newBuilder()
+        val url = (if (genre!!.isEmpty()) "$baseUrl/search" else "$baseUrl/genre/$genre").toHttpUrl().newBuilder()
 
         url.addQueryParameter("q", query)
         url.addQueryParameter("page", page.toString())
@@ -85,7 +85,7 @@ class MangaJar : ParsedHttpSource() {
                 else -> {}
             }
         }
-        return GET(url.toString(), headers)
+        return GET(url.build(), headers)
     }
 
     override fun searchMangaSelector() = popularMangaSelector()
@@ -142,7 +142,7 @@ class MangaJar : ParsedHttpSource() {
 
     override fun chapterListSelector() = "li.list-group-item.chapter-item"
 
-    override fun chapterFromElement(element: Element) = throw Exception("Not Used")
+    override fun chapterFromElement(element: Element) = throw UnsupportedOperationException()
 
     private fun parseChapterDate(string: String): Long {
         return if ("ago" in string) {
@@ -176,7 +176,7 @@ class MangaJar : ParsedHttpSource() {
         }
     }
 
-    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException("Not Used")
+    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // Filters
 

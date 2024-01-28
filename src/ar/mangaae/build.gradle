@@ -1,9 +1,5 @@
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-
 ext {
     extName = 'Manga.ae'
-    pkgNameSuffix = 'ar.mangaae'
     extClass = '.MangaAe'
     extVersionCode = 11
 }

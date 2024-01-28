@@ -114,7 +114,7 @@ class OlympusScanlation : HttpSource() {
         }
         url.addQueryParameter("type", "comic")
         url.addQueryParameter("page", page.toString())
-        return GET(url.build().toString(), headers)
+        return GET(url.build(), headers)
     }
 
     override fun searchMangaParse(response: Response): MangasPage {
@@ -224,7 +224,7 @@ class OlympusScanlation : HttpSource() {
         }
     }
 
-    override fun imageUrlParse(response: Response): String = throw Exception("Not used")
+    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     private fun parseStatus(statusId: Int?) = when (statusId) {
         1 -> SManga.ONGOING

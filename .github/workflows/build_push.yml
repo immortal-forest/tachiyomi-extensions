@@ -50,7 +50,7 @@ jobs:
           distribution: adopt
 
       - name: Generate multisrc sources
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/gradle-build-action@v3
         with:
           arguments: :multisrc:generateExtensions
 
@@ -101,14 +101,14 @@ jobs:
           echo ${{ secrets.SIGNING_KEY }} | base64 -d > signingkey.jks
 
       - name: Generate sources from the multi-source library
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/gradle-build-action@v3
         env:
           CI_MODULE_GEN: "true"
         with:
           arguments: :multisrc:generateExtensions
 
       - name: Build extensions (chunk ${{ matrix.chunk }})
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/gradle-build-action@v3
         env:
           CI_MULTISRC: "true"
           CI_CHUNK_NUM: ${{ matrix.chunk }}
@@ -150,7 +150,7 @@ jobs:
           echo ${{ secrets.SIGNING_KEY }} | base64 -d > signingkey.jks
 
       - name: Build extensions (chunk ${{ matrix.chunk }})
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/gradle-build-action@v3
         env:
           CI_MULTISRC: "false"
           CI_CHUNK_NUM: ${{ matrix.chunk }}
@@ -199,11 +199,11 @@ jobs:
       - name: Create repo artifacts
         run: |
           cd main
-          ./.github/scripts/move-apks.sh
-          INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/tachiyomiorg/tachiyomi-extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
+          python ./.github/scripts/move-apks.py
+          INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/keiyoushi/extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
           curl -L "$INSPECTOR_LINK" -o ./Inspector.jar
-          java -jar ./Inspector.jar "apk" "output.json" "tmp"
-          ./.github/scripts/create-repo.sh
+          java -jar ./Inspector.jar "repo/apk" "output.json" "tmp"
+          python ./.github/scripts/create-repo.py
 
       - name: Checkout repo branch
         uses: actions/checkout@v4

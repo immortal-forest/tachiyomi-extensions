@@ -46,8 +46,8 @@ abstract class MangaHub(
 
     override val supportsLatest = true
 
-    private var baseApiUrl = "https://api.mghubcdn.com"
-    private var baseCdnUrl = "https://imgx.mghubcdn.com"
+    private var baseApiUrl = "https://api.mghcdn.com"
+    private var baseCdnUrl = "https://imgx.mghcdn.com"
 
     override val client: OkHttpClient = super.client.newBuilder()
         .setRandomUserAgent(
@@ -163,7 +163,7 @@ abstract class MangaHub(
 
     // search
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = "$baseUrl/search/page/$page".toHttpUrlOrNull()!!.newBuilder()
+        val url = "$baseUrl/search/page/$page".toHttpUrl().newBuilder()
         url.addQueryParameter("q", query)
         (if (filters.isEmpty()) getFilterList() else filters).forEach { filter ->
             when (filter) {
@@ -178,7 +178,7 @@ abstract class MangaHub(
                 else -> {}
             }
         }
-        return GET(url.toString(), headers)
+        return GET(url.build(), headers)
     }
 
     override fun searchMangaSelector() = popularMangaSelector()
@@ -279,7 +279,7 @@ abstract class MangaHub(
     }
 
     override fun chapterFromElement(element: Element): SChapter {
-        throw UnsupportedOperationException("Not Used")
+        throw UnsupportedOperationException()
     }
 
     private fun parseChapterDate(date: String): Long {
@@ -361,7 +361,7 @@ abstract class MangaHub(
             .doOnError { refreshApiKey(chapter) }
             .retry(1)
 
-    override fun pageListParse(document: Document): List<Page> = throw UnsupportedOperationException("Not used")
+    override fun pageListParse(document: Document): List<Page> = throw UnsupportedOperationException()
     override fun pageListParse(response: Response): List<Page> {
         val chapterObject = json.decodeFromString<ApiChapterPagesResponse>(response.body.string())
 
@@ -393,7 +393,7 @@ abstract class MangaHub(
         return GET(page.url, newHeaders)
     }
 
-    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException("Not used")
+    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     // filters
     private class Genre(title: String, val key: String) : Filter.TriState(title) {

@@ -1,9 +1,5 @@
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-
 ext {
     extName = 'NewToki / ManaToki'
-    pkgNameSuffix = 'ko.newtoki'
     extClass = '.TokiFactory'
     extVersionCode = 29
     isNsfw = true
