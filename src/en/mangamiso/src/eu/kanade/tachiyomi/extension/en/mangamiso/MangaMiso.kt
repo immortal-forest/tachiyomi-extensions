@@ -98,7 +98,7 @@ class MangaMiso : HttpSource() {
 
                 // If no filters selected, default to "all"
                 if (tagCount == 0) { url.addPathSegment("all") }
-                GET(url.toString(), headers)
+                GET(url.build(), headers)
             }
         }
     }
@@ -123,7 +123,7 @@ class MangaMiso : HttpSource() {
             .addQueryParameter("perPage", MANGA_PER_PAGE.toString())
             .addQueryParameter("page", page.toString())
 
-        return GET(url.toString(), headers)
+        return GET(url.build(), headers)
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
@@ -218,7 +218,7 @@ class MangaMiso : HttpSource() {
         }
     }
 
-    override fun imageUrlParse(response: Response) = throw UnsupportedOperationException("Not used.")
+    override fun imageUrlParse(response: Response) = throw UnsupportedOperationException()
 
     //region Filter Classes
     private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :

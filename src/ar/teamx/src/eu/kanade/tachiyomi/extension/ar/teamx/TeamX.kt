@@ -22,7 +22,7 @@ class TeamX : ParsedHttpSource() {
 
     override val name = "Team X"
 
-    override val baseUrl = "https://team11x11.com"
+    override val baseUrl = "https://team1x12.com"
 
     override val lang = "ar"
 
@@ -195,5 +195,5 @@ class TeamX : ParsedHttpSource() {
         }
     }
 
-    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException("Not used")
+    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException()
 }

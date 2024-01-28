@@ -186,14 +186,14 @@ abstract class MMRCMS(
             .let { elements ->
                 when {
                     // List layout (most sources)
-                    elements.select("a").firstOrNull()?.hasText() == true -> elements.map { latestUpdatesFromElement(it, "a") }
+                    elements.select("a[href]").firstOrNull()?.hasText() == true -> elements.map { latestUpdatesFromElement(it, "a[href]") }
                     // Grid layout (e.g. MangaID)
                     else -> document.select(gridLatestUpdatesSelector()).map { gridLatestUpdatesFromElement(it) }
                 }
             }
             .filterNotNull()
 
-        return MangasPage(mangas, document.select(latestUpdatesNextPageSelector()) != null)
+        return MangasPage(mangas, document.selectFirst(latestUpdatesNextPageSelector()) != null)
     }
     private fun latestUpdatesSelector() = "div.mangalist div.manga-item"
     private fun latestUpdatesNextPageSelector() = "a[rel=next]"
@@ -420,7 +420,7 @@ abstract class MMRCMS(
             Page(i, response.request.url.toString(), url)
         }
 
-    override fun imageUrlParse(response: Response) = throw UnsupportedOperationException("Unused method called!")
+    override fun imageUrlParse(response: Response) = throw UnsupportedOperationException()
 
     private fun getInitialFilterList() = listOf<Filter<*>>(
         Filter.Header("NOTE: Ignored if using text search!"),

@@ -11,7 +11,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -65,7 +65,7 @@ abstract class FMReader(
         GET("$baseUrl/$requestPath?listType=pagination&page=$page&$popularSort&sort_type=DESC", headers)
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = "$baseUrl/$requestPath?".toHttpUrlOrNull()!!.newBuilder()
+        val url = "$baseUrl/$requestPath?".toHttpUrl().newBuilder()
             .addQueryParameter("name", query)
             .addQueryParameter("page", page.toString())
         (if (filters.isEmpty()) getFilterList() else filters).forEach { filter ->
@@ -76,14 +76,10 @@ abstract class FMReader(
                 }
                 is TextField -> url.addQueryParameter(filter.key, filter.state)
                 is GenreList -> {
-                    var genre = String()
-                    var ungenre = String()
-                    filter.state.forEach {
-                        if (it.isIncluded()) genre += ",${it.name}"
-                        if (it.isExcluded()) ungenre += ",${it.name}"
-                    }
-                    url.addQueryParameter("genre", genre)
-                    url.addQueryParameter("ungenre", ungenre)
+                    val included = filter.state.filter { it.isIncluded() }.joinToString(",") { it.name }
+                    val excluded = filter.state.filter { it.isExcluded() }.joinToString(",") { it.name }
+                    url.addQueryParameter("genre", included)
+                    url.addQueryParameter("ungenre", excluded)
                 }
                 is SortBy -> {
                     url.addQueryParameter(
@@ -101,7 +97,7 @@ abstract class FMReader(
                 else -> {}
             }
         }
-        return GET(url.toString(), headers)
+        return GET(url.build(), headers)
     }
 
     override fun latestUpdatesRequest(page: Int): Request =
@@ -161,17 +157,28 @@ abstract class FMReader(
 
     override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
 
+    // Manga Details Selector
+    open val infoElementSelector = "div.row"
+    open val mangaDetailsSelectorAuthor = "li a.btn-info"
+    open val mangaDetailsSelectorGenre = "li a.btn-danger"
+    open val mangaDetailsSelectorStatus = "li a.btn-success"
+    open val mangaDetailsSelectorDescription = "div.detail .content, div.row ~ div.row:has(h3:first-child) p, .summary-content p"
+    open val mangaDetailsSelectorThumbnail = "img.thumbnail"
+
+    open val altNameSelector = "li:contains(Other names)"
+    open val altName = "Alternative Name" // the alt name already contains ": " eg. ": alt name1, alt name2"
+
     override fun mangaDetailsParse(document: Document): SManga {
-        val infoElement = document.select("div.row").first()!!
+        val infoElement = document.select(infoElementSelector).first()!!
 
         return SManga.create().apply {
-            author = infoElement.select("li a.btn-info").eachText().filter {
+            author = infoElement.select(mangaDetailsSelectorAuthor).eachText().filter {
                 it.equals("Updating", true).not()
             }.joinToString().takeIf { it.isNotBlank() }
-            genre = infoElement.select("li a.btn-danger").joinToString { it.text() }
-            status = parseStatus(infoElement.select("li a.btn-success").first()?.text())
-            description = document.select("div.detail .content, div.row ~ div.row:has(h3:first-child) p, .summary-content p").text().trim()
-            thumbnail_url = infoElement.select("img.thumbnail").imgAttr()
+            genre = infoElement.select(mangaDetailsSelectorGenre).joinToString { it.text() }
+            status = parseStatus(infoElement.select(mangaDetailsSelectorStatus).first()?.text())
+            description = document.select(mangaDetailsSelectorDescription).text().trim()
+            thumbnail_url = infoElement.select(mangaDetailsSelectorThumbnail).imgAttr()
 
             // add alternative name to manga description
             infoElement.select(altNameSelector).firstOrNull()?.ownText()?.let {
@@ -184,9 +191,6 @@ abstract class FMReader(
             }
         }
     }
-
-    open val altNameSelector = "li:contains(Other names)"
-    open val altName = "Alternative Name" // the alt name already contains ": " eg. ": alt name1, alt name2"
 
     // languages: en, vi, tr
     fun parseStatus(status: String?): Int {
@@ -251,7 +255,7 @@ abstract class FMReader(
     // gets the unit of time (day, week hour) from "1 day ago"
     open val dateWordIndex = 1
 
-    private fun parseRelativeDate(date: String): Long {
+    open fun parseRelativeDate(date: String): Long {
         val value = date.split(' ')[dateValueIndex].toInt()
         val dateWord = date.split(' ')[dateWordIndex].let {
             if (it.contains("(")) {
@@ -333,7 +337,7 @@ abstract class FMReader(
         }
     }
 
-    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException("Not used")
+    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     private class TextField(name: String, val key: String) : Filter.Text(name)
     private class Status : Filter.Select<String>("Status", arrayOf("Any", "Completed", "Ongoing"))

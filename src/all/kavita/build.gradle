@@ -11,7 +11,7 @@ ext {
 
 dependencies {
     implementation 'info.debatty:java-string-similarity:2.0.0'
-    implementation(project(':lib-i18n'))
+    implementation(project(':lib:i18n'))
 }
 
 apply from: "$rootDir/common.gradle"

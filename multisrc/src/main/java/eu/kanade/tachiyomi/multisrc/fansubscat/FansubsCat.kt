@@ -122,7 +122,7 @@ abstract class FansubsCat(
         if (query.isNotBlank()) {
             builder.addQueryParameter("query", query)
         }
-        return GET(builder.toString(), headers)
+        return GET(builder.build(), headers)
     }
 
     override fun searchMangaParse(response: Response): MangasPage = parseMangaFromJson(response)
@@ -190,7 +190,7 @@ abstract class FansubsCat(
     override fun pageListParse(response: Response): List<Page> = parsePageListFromJson(response)
 
     override fun imageUrlParse(response: Response): String =
-        throw UnsupportedOperationException("Not used")
+        throw UnsupportedOperationException()
 
     // Filter
     override fun getFilterList() = FilterList(

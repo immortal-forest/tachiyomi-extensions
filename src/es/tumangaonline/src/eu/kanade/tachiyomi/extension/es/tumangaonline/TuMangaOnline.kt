@@ -1,15 +1,12 @@
 package eu.kanade.tachiyomi.extension.es.tumangaonline
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.SharedPreferences
-import android.os.Handler
-import android.os.Looper
-import android.view.View
-import android.webkit.WebChromeClient
-import android.webkit.WebView
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.asObservableSuccess
+import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
@@ -22,7 +19,7 @@ import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.FormBody
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -31,9 +28,13 @@ import org.jsoup.nodes.Element
 import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.CountDownLatch
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
 
@@ -61,50 +62,49 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
 
     private fun OkHttpClient.Builder.rateLimitImageCDNs(hosts: Array<String>, permits: Int, period: Long): OkHttpClient.Builder {
         hosts.forEach { host ->
-            rateLimitHost(host.toHttpUrlOrNull()!!, permits, period)
+            rateLimitHost(host.toHttpUrl(), permits, period)
         }
         return this
     }
 
-    private var loadWebView = true
+    private fun OkHttpClient.Builder.ignoreAllSSLErrors(): OkHttpClient.Builder {
+        val naiveTrustManager = @SuppressLint("CustomX509TrustManager")
+        object : X509TrustManager {
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+            override fun checkClientTrusted(certs: Array<X509Certificate>, authType: String) = Unit
+            override fun checkServerTrusted(certs: Array<X509Certificate>, authType: String) = Unit
+        }
+
+        val insecureSocketFactory = SSLContext.getInstance("TLSv1.2").apply {
+            val trustAllCerts = arrayOf<TrustManager>(naiveTrustManager)
+            init(null, trustAllCerts, SecureRandom())
+        }.socketFactory
+
+        sslSocketFactory(insecureSocketFactory, naiveTrustManager)
+        hostnameVerifier { _, _ -> true }
+        return this
+    }
+
+    private val ignoreSslClient = network.client.newBuilder()
+        .ignoreAllSSLErrors()
+        .followRedirects(false)
+        .rateLimit(
+            preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(),
+            60,
+        )
+        .build()
+
     override val client: OkHttpClient = network.client.newBuilder()
         .addInterceptor { chain ->
             val request = chain.request()
             val url = request.url
-            if (url.host.contains("japanreader.com") && loadWebView) {
-                val handler = Handler(Looper.getMainLooper())
-                val latch = CountDownLatch(1)
-                var webView: WebView? = null
-                handler.post {
-                    val webview = WebView(Injekt.get<Application>())
-                    webView = webview
-                    webview.settings.domStorageEnabled = true
-                    webview.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-                    webview.settings.useWideViewPort = false
-                    webview.settings.loadWithOverviewMode = false
-
-                    webview.webChromeClient = object : WebChromeClient() {
-                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                            if (newProgress == 100) {
-                                latch.countDown()
-                            }
-                        }
-                    }
-
-                    val headers = mutableMapOf<String, String>()
-                    headers["Referer"] = baseUrl
-
-                    webview.loadUrl(url.toString(), headers)
-                }
-
-                latch.await()
-                loadWebView = false
-                handler.post { webView?.destroy() }
+            if (url.host.contains("japanreader.com")) {
+                return@addInterceptor ignoreSslClient.newCall(request).execute()
             }
             chain.proceed(request)
         }
         .rateLimitHost(
-            baseUrl.toHttpUrlOrNull()!!,
+            baseUrl.toHttpUrl(),
             preferences.getString(WEB_RATELIMIT_PREF, WEB_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(),
             60,
         )
@@ -141,7 +141,7 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
     override fun latestUpdatesFromElement(element: Element) = popularMangaFromElement(element)
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = "$baseUrl/library".toHttpUrlOrNull()!!.newBuilder()
+        val url = "$baseUrl/library".toHttpUrl().newBuilder()
         url.addQueryParameter("title", query)
         if (getSFWModePref()) {
             SFW_MODE_PREF_EXCLUDE_GENDERS.forEach { gender ->
@@ -201,7 +201,7 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
                 else -> {}
             }
         }
-        return GET(url.build().toString(), headers)
+        return GET(url.build(), headers)
     }
     override fun searchMangaSelector() = popularMangaSelector()
     override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
@@ -216,7 +216,7 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
             it.text()
         }
         description = document.select("p.element-description").text()
-        status = parseStatus(document.select("span.book-status").text().orEmpty())
+        status = parseStatus(document.select("span.book-status").text())
         thumbnail_url = document.select(".book-thumbnail").attr("src")
     }
     private fun parseStatus(status: String) = when {
@@ -244,8 +244,8 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
         }
         return chapters
     }
-    override fun chapterListSelector() = throw UnsupportedOperationException("Not used")
-    override fun chapterFromElement(element: Element) = throw UnsupportedOperationException("Not used")
+    override fun chapterListSelector() = throw UnsupportedOperationException()
+    override fun chapterFromElement(element: Element) = throw UnsupportedOperationException()
     private fun oneShotChapterListSelector() = "div.chapter-list-element > ul.list-group li.list-group-item"
     private fun oneShotChapterFromElement(element: Element) = SChapter.create().apply {
         url = element.select("div.row > .text-right > a").attr("href")
@@ -279,7 +279,10 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
         }
 
         if (currentUrl != newUrl) {
-            doc = client.newCall(GET(newUrl, headers)).execute().asJsoup()
+            val redirectHeaders = super.headersBuilder()
+                .set("Referer", doc.location())
+                .build()
+            doc = client.newCall(GET(newUrl, redirectHeaders)).execute().asJsoup()
         }
 
         doc.select("div.viewer-container img:not(noscript img)").forEach {
@@ -299,39 +302,78 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
         }
     }
 
-    // Some chapters uses JavaScript to redirect to read page
     private fun redirectToReadPage(document: Document): Document {
         val script1 = document.selectFirst("script:containsData(uniqid)")
         val script2 = document.selectFirst("script:containsData(window.location.replace)")
+        val script3 = document.selectFirst("script:containsData(redirectUrl)")
+        val script4 = document.selectFirst("input#redir")
+        val script5 = document.selectFirst("script:containsData(window.opener):containsData(location.replace)")
 
-        val redirectHeaders = Headers.Builder()
-            .add("Referer", document.baseUri())
+        val redirectHeaders = super.headersBuilder()
+            .set("Referer", document.location())
             .build()
 
         if (script1 != null) {
             val data = script1.data()
             val regexParams = """\{uniqid:'(.+)',cascade:(.+)\}""".toRegex()
             val regexAction = """form\.action\s?=\s?'(.+)'""".toRegex()
-            val params = regexParams.find(data)!!
-            val action = regexAction.find(data)!!.groupValues[1]
+            val params = regexParams.find(data)
+            val action = regexAction.find(data)?.groupValues?.get(1)?.unescapeUrl()
 
-            val formBody = FormBody.Builder()
-                .add("uniqid", params.groupValues[1])
-                .add("cascade", params.groupValues[2])
-                .build()
-
-            return redirectToReadPage(client.newCall(POST(action, redirectHeaders, formBody)).execute().asJsoup())
+            if (params != null && action != null) {
+                val formBody = FormBody.Builder()
+                    .add("uniqid", params.groupValues[1])
+                    .add("cascade", params.groupValues[2])
+                    .build()
+                return redirectToReadPage(client.newCall(POST(action, redirectHeaders, formBody)).execute().asJsoup())
+            }
         }
 
         if (script2 != null) {
             val data = script2.data()
-            val regexRedirect = """window\.location\.replace\('(.+)'\)""".toRegex()
-            val url = regexRedirect.find(data)!!.groupValues[1]
+            val regexRedirect = """window\.location\.replace\(['"](.+)['"]\)""".toRegex()
+            val url = regexRedirect.find(data)?.groupValues?.get(1)?.unescapeUrl()
+
+            if (url != null) {
+                return redirectToReadPage(client.newCall(GET(url, redirectHeaders)).execute().asJsoup())
+            }
+        }
+
+        if (script3 != null) {
+            val data = script3.data()
+            val regexRedirect = """redirectUrl\s?=\s?'(.+)'""".toRegex()
+            val url = regexRedirect.find(data)?.groupValues?.get(1)?.unescapeUrl()
+
+            if (url != null) {
+                return redirectToReadPage(client.newCall(GET(url, redirectHeaders)).execute().asJsoup())
+            }
+        }
+
+        if (script4 != null) {
+            val url = script4.attr("value").unescapeUrl()
 
             return redirectToReadPage(client.newCall(GET(url, redirectHeaders)).execute().asJsoup())
         }
 
+        if (script5 != null) {
+            val data = script5.data()
+            val regexRedirect = """;[^.]location\.replace\(['"](.+)['"]\)""".toRegex()
+            val url = regexRedirect.find(data)?.groupValues?.get(1)?.unescapeUrl()
+
+            if (url != null) {
+                return redirectToReadPage(client.newCall(GET(url, redirectHeaders)).execute().asJsoup())
+            }
+        }
+
         return document
+    }
+
+    private fun String.unescapeUrl(): String {
+        return if (this.startsWith("http:\\/\\/") || this.startsWith("https:\\/\\/")) {
+            this.replace("\\/", "/")
+        } else {
+            this
+        }
     }
 
     // Note: At this moment (05/04/2023) it's necessary to make the image request with headers to prevent 403.
@@ -342,7 +384,7 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
         return GET(page.imageUrl!!, imageHeaders)
     }
 
-    override fun imageUrlParse(document: Document) = throw Exception("Not Used")
+    override fun imageUrlParse(document: Document) = throw UnsupportedOperationException()
 
     private fun searchMangaByIdRequest(id: String) = GET("$baseUrl/$PREFIX_LIBRARY/$id", headers)
 
@@ -614,8 +656,8 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
         // Ratelimit permits per second for main website
         private const val WEB_RATELIMIT_PREF_TITLE = "Ratelimit por minuto para el sitio web"
 
-        // This value affects network request amount to TMO url. Lower this value may reduce the chance to get HTTP 429 error, but loading speed will be slower too. Tachiyomi restart required. \nCurrent value: %s
-        private const val WEB_RATELIMIT_PREF_SUMMARY = "Este valor afecta la cantidad de solicitudes de red a la URL de TMO. Reducir este valor puede disminuir la posibilidad de obtener un error HTTP 429, pero la velocidad de descarga será más lenta. Se requiere reiniciar Tachiyomi. \nValor actual: %s"
+        // This value affects network request amount to TMO url. Lower this value may reduce the chance to get HTTP 429 error, but loading speed will be slower too. App restart required. \nCurrent value: %s
+        private const val WEB_RATELIMIT_PREF_SUMMARY = "Este valor afecta la cantidad de solicitudes de red a la URL de TMO. Reducir este valor puede disminuir la posibilidad de obtener un error HTTP 429, pero la velocidad de descarga será más lenta. Se requiere reiniciar la app. \nValor actual: %s"
         private const val WEB_RATELIMIT_PREF_DEFAULT_VALUE = "8"
 
         private const val IMAGE_CDN_RATELIMIT_PREF = "imgCDNRatelimitPreference"
@@ -623,8 +665,8 @@ class TuMangaOnline : ConfigurableSource, ParsedHttpSource() {
         // Ratelimit permits per second for image CDN
         private const val IMAGE_CDN_RATELIMIT_PREF_TITLE = "Ratelimit por minuto para descarga de imágenes"
 
-        // This value affects network request amount for loading image. Lower this value may reduce the chance to get error when loading image, but loading speed will be slower too. Tachiyomi restart required. \nCurrent value: %s
-        private const val IMAGE_CDN_RATELIMIT_PREF_SUMMARY = "Este valor afecta la cantidad de solicitudes de red para descargar imágenes. Reducir este valor puede disminuir errores al cargar imagenes, pero la velocidad de descarga será más lenta. Se requiere reiniciar Tachiyomi. \nValor actual: %s"
+        // This value affects network request amount for loading image. Lower this value may reduce the chance to get error when loading image, but loading speed will be slower too. App restart required. \nCurrent value: %s
+        private const val IMAGE_CDN_RATELIMIT_PREF_SUMMARY = "Este valor afecta la cantidad de solicitudes de red para descargar imágenes. Reducir este valor puede disminuir errores al cargar imagenes, pero la velocidad de descarga será más lenta. Se requiere reiniciar la app. \nValor actual: %s"
         private const val IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE = "50"
 
         private val ENTRIES_ARRAY = listOf(1, 2, 3, 5, 6, 7, 8, 9, 10, 15, 20, 30, 40, 50, 100).map { i -> i.toString() }.toTypedArray()

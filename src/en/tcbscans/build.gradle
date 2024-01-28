@@ -1,9 +1,5 @@
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-
 ext {
     extName = 'TCB Scans'
-    pkgNameSuffix = 'en.tcbscans'
     extClass = '.TCBScans'
     extVersionCode = 6
 }

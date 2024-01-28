@@ -1,9 +1,5 @@
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-
 ext {
     extName = 'Iqiyi'
-    pkgNameSuffix = 'zh.iqiyi'
     extClass = '.Iqiyi'
     extVersionCode = 1
 }

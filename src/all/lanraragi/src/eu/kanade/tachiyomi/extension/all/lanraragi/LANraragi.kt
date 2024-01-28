@@ -6,6 +6,7 @@ import android.net.Uri
 import android.text.InputType
 import android.util.Base64
 import android.widget.Toast
+import androidx.preference.ListPreference
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
@@ -272,7 +273,7 @@ open class LANraragi(private val suffix: String = "") : ConfigurableSource, Unme
         (0..7).map { bytes[it].toLong() and 0xff shl 8 * (7 - it) }.reduce(Long::or) and Long.MAX_VALUE
     }
 
-    private val preferences: SharedPreferences by lazy {
+    internal val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
     }
 
@@ -282,6 +283,27 @@ open class LANraragi(private val suffix: String = "") : ConfigurableSource, Unme
     private fun getPrefCustomLabel(): String = preferences.getString(CUSTOM_LABEL_KEY, suffix)!!.ifBlank { suffix }
 
     override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
+        if (suffix == "1") {
+            ListPreference(screen.context).apply {
+                key = EXTRA_SOURCES_COUNT_KEY
+                title = "Number of extra sources"
+                summary = "Number of additional sources to create. There will always be at least one LANraragi source."
+                entries = EXTRA_SOURCES_ENTRIES
+                entryValues = EXTRA_SOURCES_ENTRIES
+
+                setDefaultValue(EXTRA_SOURCES_COUNT_DEFAULT)
+                setOnPreferenceChangeListener { _, newValue ->
+                    try {
+                        val setting = preferences.edit().putString(EXTRA_SOURCES_COUNT_KEY, newValue as String).commit()
+                        Toast.makeText(screen.context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
+                        setting
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        false
+                    }
+                }
+            }.also(screen::addPreference)
+        }
         screen.addPreference(screen.editTextPreference(HOSTNAME_KEY, "Hostname", HOSTNAME_DEFAULT, baseUrl, refreshSummary = true))
         screen.addPreference(screen.editTextPreference(APIKEY_KEY, "API Key", "", "Required if No-Fun Mode is enabled.", true))
         screen.addPreference(screen.editTextPreference(CUSTOM_LABEL_KEY, "Custom Label", "", "Show the given label for the source instead of the default."))
@@ -458,6 +480,10 @@ open class LANraragi(private val suffix: String = "") : ConfigurableSource, Unme
     }
 
     companion object {
+        internal const val EXTRA_SOURCES_COUNT_KEY = "extraSourcesCount"
+        internal const val EXTRA_SOURCES_COUNT_DEFAULT = "2"
+        private val EXTRA_SOURCES_ENTRIES = (0..10).map { it.toString() }.toTypedArray()
+
         private const val HOSTNAME_DEFAULT = "http://127.0.0.1:3000"
         private const val HOSTNAME_KEY = "hostname"
         private const val APIKEY_KEY = "apiKey"
