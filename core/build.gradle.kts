@@ -18,6 +18,14 @@ android {
         }
     }
 
+
+
+    libraryVariants.all {
+        generateBuildConfigProvider?.configure {
+            enabled = false
+        }
+    }
+
     buildFeatures {
         resValues = false
         shaders = false
