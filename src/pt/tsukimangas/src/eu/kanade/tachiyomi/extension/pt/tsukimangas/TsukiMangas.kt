@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.util.asJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import okhttp3.HttpUrl
@@ -39,6 +40,7 @@ class TsukiMangas : HttpSource() {
 
     override val client by lazy {
         network.client.newBuilder()
+            .addInterceptor(::apiHeadersInterceptor)
             .addInterceptor(::imageCdnSwapper)
             .rateLimitHost(baseUrl.toHttpUrl(), 2)
             .rateLimitHost(MAIN_CDN.toHttpUrl(), 1)
@@ -46,7 +48,8 @@ class TsukiMangas : HttpSource() {
             .build()
     }
 
-    override fun headersBuilder() = super.headersBuilder().add("Referer", "$baseUrl/")
+    override fun headersBuilder() = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
 
     private val json: Json by injectLazy()
 
@@ -259,6 +262,33 @@ class TsukiMangas : HttpSource() {
         }
     }
 
+    private val apiHeadersRegex = Regex("""headers\.common(?:\.(?<key>[0-9A-Za-z_]+)|\[['"](?<key2>[0-9A-Za-z-_]+)['"]])\s*=\s*['"](?<value>[a-zA-Z0-9_ :;.,\\/?!(){}\[\]@<>=\-+*#$&`|~^%]+)['"]""")
+
+    private val apiHeaders by lazy {
+        val document = client.newCall(GET(baseUrl, headers)).execute().asJsoup()
+        val scriptUrl = document.selectFirst("script[src*=index-]")!!.absUrl("src")
+        val script = client.newCall(GET(scriptUrl, headers)).execute().body.string()
+        val matches = apiHeadersRegex.findAll(script)
+
+        matches.associate {
+            (it.groups["key"] ?: it.groups["key2"]!!).value to it.groups["value"]!!.value
+        }
+    }
+
+    private fun apiHeadersInterceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+
+        if (!request.url.encodedPath.startsWith(API_PATH)) {
+            return chain.proceed(request)
+        }
+
+        val newRequest = request.newBuilder().apply {
+            apiHeaders.entries.forEach { addHeader(it.key, it.value) }
+        }.build()
+
+        return chain.proceed(newRequest)
+    }
+
     companion object {
         const val PREFIX_SEARCH = "id:"
 
@@ -268,6 +298,6 @@ class TsukiMangas : HttpSource() {
 
         private const val MAIN_CDN = "https://cdn.tsuki-mangas.com/tsuki"
         private const val SECONDARY_CDN = "https://cdn2.tsuki-mangas.com"
-        private const val API_PATH = "/api/d1"
+        private const val API_PATH = "/api/v3"
     }
 }
