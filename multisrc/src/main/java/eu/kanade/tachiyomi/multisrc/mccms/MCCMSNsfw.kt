@@ -13,7 +13,8 @@ open class MCCMSNsfw(
     name: String,
     baseUrl: String,
     lang: String = "zh",
-) : MCCMSWeb(name, baseUrl, lang, hasCategoryPage = false) {
+    config: MCCMSConfig = MCCMSConfig(),
+) : MCCMSWeb(name, baseUrl, lang, config) {
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList) =
         if (query.isNotBlank()) {
