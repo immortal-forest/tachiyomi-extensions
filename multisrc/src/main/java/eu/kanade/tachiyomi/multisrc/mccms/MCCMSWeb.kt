@@ -34,7 +34,7 @@ open class MCCMSWeb(
     override fun headersBuilder() = Headers.Builder()
         .add("User-Agent", System.getProperty("http.agent")!!)
 
-    fun parseListing(document: Document): MangasPage {
+    private fun parseListing(document: Document): MangasPage {
         parseGenres(document, config.genreData)
         val mangas = document.select(Evaluator.Class("common-comic-item")).map {
             SManga.create().apply {
