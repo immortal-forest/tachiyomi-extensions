@@ -36,34 +36,23 @@ jobs:
                 "message": "You did not fill out the description in the title."
               },
               {
-                "type": "both",
-                "regex": ".*(hq\\s*dragon|manga\\s*host|supermangas|superhentais|union\\s*mangas|yes\\s*mangas|manhuascan|manhwahot|leitor\\.?net|manga\\s*livre|tsuki\\s*mangas|manga\\s*yabu|mangas\\.in|mangas\\.pw|hentaikai|toptoon\\+?|colamanhua|mangadig|hitomi\\.la|copymanga|neox|1manga\\.co|mangafox\\.fun|mangahere\\.onl|mangakakalot\\.fun|manganel(?!o)|mangaonline\\.fun|mangatoday|manga\\.town|onemanga\\.info|koushoku|comikey).*",
-                "ignoreCase": true,
-                "message": "{match} will not be added back as it is too difficult to maintain. Read #3475 for more information."
-              },
-              {
-                "type": "both",
-                "regex": ".*(komiktap|gourmet\\s*scans|mangawow|hikari\\s*scans|mangagegecesi|knightnoscanlations|ahstudios|mangagecesi|nartag|xxx\\s*yaoi|yaoi\\s*fan\\s*clube|luminous|dragontea|manhwaid\\.org|hunters\\s*scan|reset(?:\\s*|-)scan|manga-flix\\.com|astra\\s*scans|manganoon|manga(?:-|\\s*)pro|coven\\s*scans?|shinobiscans|plot ?twist ?no ?fansub(?: ?scans?)?|plot-twistnf-scans(?:\\.com)?|mhscans).*",
-                "ignoreCase": true,
-                "message": "{match} will not be added back as the scanlator team has requested it to be removed. Read #3475 for more information."
-              },
-              {
-                "type": "both",
-                "regex": ".*(?:fail(?:ed|ure)?|can\\s*(?:no|')?t|unable|get past|(?<!n[o']?t )blocked by|error) (?:to )?(?:bypass|penetrate)?.*cloudfl?are.*",
-                "ignoreCase": true,
-                "message": "Refer to the **Solving Cloudflare issues** section at https://tachiyomi.org/help/guides/troubleshooting/#solving-cloudflare-issues. If it doesn't work, migrate to other sources or wait until they lower their protection."
-              },
-              {
                 "type": "body",
-                "regex": ".*shinigami\\.id.*",
-                "ignoreCase": true,
-                "message": "Duplicate of #15408"
+                "regex": "- \\[[xX]\\] I have admitted that I am a clown by having checked this box, as I have not read these acknowledgements\\.",
+                "labels": [":clown_face:"],
+                "message": "You have not carefully read the acknowledgements."
               },
               {
-                "type": "body",
-                "regex": ".*olympusscans\\.com.*",
+                "type": "both",
+                "regex": ".*(?:fail(?:ed|ure|s)?|can\\s*(?:no|')?t|(?:not|un).*able|(?<!n[o']?t )blocked by|error) (?:to )?(?:get past|by ?pass|penetrate)?.*cl[oa]ud ?fl?[ai]re.*",
                 "ignoreCase": true,
-                "message": "Duplicate of #15330"
+                "labels": ["Cloudflare protected"],
+                "message": "Refer to the **Solving Cloudflare issues** section at https://tachiyomi.org/docs/guides/troubleshooting/#cloudflare. If it doesn't work, migrate to other sources or wait until they lower their protection."
+              },
+              {
+                "type": "both",
+                "regex": ".*(?:fail(?:ed|ure|s|ing)?|can\\s*(?:no|')?t|(?:not|un)(?:.*able)?|(?<!n[o']?t )blocked by|error) (?:to )?.*(?:install|update(?:d|ing)?)(?: extensions?)?",
+                "ignoreCase": true,
+                "message": "Uninstall the extension before updating. If that does not work, uninstall it from your device's settings by navigating to your device's Settings -> Apps and uninstall it from there by looking for **Tachiyomi: <extension name>**.\n\nThis is usually caused your previous extension having a different signature from the updated extension, making Android refuse to update it."
               }
             ]
           auto-close-ignore-label: do-not-autoclose
