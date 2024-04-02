@@ -14,7 +14,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 
-object MangaReaderImageInterceptor : Interceptor {
+object ImageInterceptor : Interceptor {
 
     private val memo = hashMapOf<Int, IntArray>()
 
