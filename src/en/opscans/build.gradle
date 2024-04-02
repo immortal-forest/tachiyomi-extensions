@@ -1,11 +1,9 @@
 ext {
     extName = 'OPSCANS'
-    extClass = '.OpScans'
-    extVersionCode = 1
+    extClass = '.OPSCANS'
+    themePkg = 'madara'
+    baseUrl = 'https://opchapters.com'
+    overrideVersionCode = 0
 }
 
 apply from: "$rootDir/common.gradle"
-
-dependencies {
-    implementation(project(":lib:dataimage"))
-}
