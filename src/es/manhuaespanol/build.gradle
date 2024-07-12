@@ -1,0 +1,10 @@
+ext {
+    extName = 'Manhua Espanol'
+    extClass = '.ManhuaEspanol'
+    themePkg = 'madara'
+    baseUrl = 'https://lectorespanol.com'
+    overrideVersionCode = 1
+    isNsfw = false
+}
+
+apply from: "$rootDir/common.gradle"

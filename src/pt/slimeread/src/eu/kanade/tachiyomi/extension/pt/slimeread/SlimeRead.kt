@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.pt.slimeread
 
+import app.cash.quickjs.QuickJs
 import eu.kanade.tachiyomi.extension.pt.slimeread.dto.ChapterDto
 import eu.kanade.tachiyomi.extension.pt.slimeread.dto.LatestResponseDto
 import eu.kanade.tachiyomi.extension.pt.slimeread.dto.MangaInfoDto
@@ -15,12 +16,16 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.util.asJsoup
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import rx.Observable
 import uy.kohesive.injekt.injectLazy
 
@@ -30,14 +35,29 @@ class SlimeRead : HttpSource() {
 
     override val baseUrl = "https://slimeread.com"
 
+    private val apiUrl: String by lazy { getApiUrlFromPage() }
+
     override val lang = "pt-BR"
 
     override val supportsLatest = true
 
     override val client by lazy {
-        network.client.newBuilder()
+        network.cloudflareClient.newBuilder()
             .rateLimitHost(baseUrl.toHttpUrl(), 2)
-            .rateLimitHost(API_URL.toHttpUrl(), 1)
+            .rateLimitHost(apiUrl.toHttpUrl(), 1)
+            .addInterceptor { chain ->
+                val response = chain.proceed(chain.request())
+                val mime = response.headers["Content-Type"]
+                if (response.isSuccessful) {
+                    if (mime == "application/octet-stream") {
+                        val type = "image/jpeg".toMediaType()
+                        val body = response.body.bytes().toResponseBody(type)
+                        return@addInterceptor response.newBuilder().body(body)
+                            .header("Content-Type", "image/jpeg").build()
+                    }
+                }
+                response
+            }
             .build()
     }
 
@@ -45,8 +65,35 @@ class SlimeRead : HttpSource() {
 
     private val json: Json by injectLazy()
 
+    private fun getApiUrlFromPage(): String {
+        val initClient = network.cloudflareClient
+        val response = initClient.newCall(GET(baseUrl, headers)).execute()
+        if (!response.isSuccessful) throw Exception("HTTP error ${response.code}")
+        val document = response.asJsoup()
+        val scriptUrl = document.selectFirst("script[src*=pages/_app]")?.attr("abs:src")
+            ?: throw Exception("Could not find script URL")
+        val scriptResponse = initClient.newCall(GET(scriptUrl, headers)).execute()
+        if (!scriptResponse.isSuccessful) throw Exception("HTTP error ${scriptResponse.code}")
+        val script = scriptResponse.body.string()
+        val apiUrl = FUNCTION_REGEX.find(script)?.value?.let { function ->
+            BASEURL_VAL_REGEX.find(function)?.groupValues?.get(1)?.let { baseUrlVar ->
+                val regex = """let.*?$baseUrlVar\s*=.*?(?=,\s*\w\s*=)""".toRegex(RegexOption.DOT_MATCHES_ALL)
+                regex.find(function)?.value?.let { varBlock ->
+                    try {
+                        QuickJs.create().use {
+                            it.evaluate("$varBlock;$baseUrlVar") as String
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            }
+        }
+        return apiUrl?.removeSuffix("/") ?: throw Exception("Could not find API URL")
+    }
+
     // ============================== Popular ===============================
-    override fun popularMangaRequest(page: Int) = GET("$API_URL/ranking/semana?nsfw=false", headers)
+    override fun popularMangaRequest(page: Int) = GET("$apiUrl/ranking/semana?nsfw=false", headers)
 
     override fun popularMangaParse(response: Response): MangasPage {
         val items = response.parseAs<List<PopularMangaDto>>()
@@ -55,7 +102,7 @@ class SlimeRead : HttpSource() {
     }
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$API_URL/books?page=$page", headers)
+    override fun latestUpdatesRequest(page: Int) = GET("$apiUrl/books?page=$page", headers)
 
     override fun latestUpdatesParse(response: Response): MangasPage {
         val dto = response.parseAs<LatestResponseDto>()
@@ -68,7 +115,7 @@ class SlimeRead : HttpSource() {
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
         return if (query.startsWith(PREFIX_SEARCH)) { // URL intent handler
             val id = query.removePrefix(PREFIX_SEARCH)
-            client.newCall(GET("$API_URL/book/$id", headers))
+            client.newCall(GET("$apiUrl/book/$id", headers))
                 .asObservableSuccess()
                 .map(::searchMangaByIdParse)
         } else {
@@ -86,7 +133,7 @@ class SlimeRead : HttpSource() {
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val params = SlimeReadFilters.getSearchParameters(filters)
 
-        val url = "$API_URL/book_search".toHttpUrl().newBuilder()
+        val url = "$apiUrl/book_search".toHttpUrl().newBuilder()
             .addIfNotBlank("query", query)
             .addIfNotBlank("genre[]", params.genre)
             .addIfNotBlank("status", params.status)
@@ -105,7 +152,7 @@ class SlimeRead : HttpSource() {
     // =========================== Manga Details ============================
     override fun getMangaUrl(manga: SManga) = baseUrl + manga.url.replace("/book/", "/manga/")
 
-    override fun mangaDetailsRequest(manga: SManga) = GET(API_URL + manga.url, headers)
+    override fun mangaDetailsRequest(manga: SManga) = GET(apiUrl + manga.url, headers)
 
     override fun mangaDetailsParse(response: Response) = SManga.create().apply {
         val info = response.parseAs<MangaInfoDto>()
@@ -113,6 +160,7 @@ class SlimeRead : HttpSource() {
         title = info.name
         description = info.description
         genre = info.categories.joinToString()
+        url = "/book/${info.id}"
         status = when (info.status) {
             1 -> SManga.ONGOING
             2 -> SManga.COMPLETED
@@ -124,7 +172,7 @@ class SlimeRead : HttpSource() {
 
     // ============================== Chapters ==============================
     override fun chapterListRequest(manga: SManga) =
-        GET("$API_URL/book_cap_units_all?manga_id=${manga.url.substringAfterLast("/")}", headers)
+        GET("$apiUrl/book_cap_units_all?manga_id=${manga.url.substringAfterLast("/")}", headers)
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val items = response.parseAs<List<ChapterDto>>()
@@ -141,11 +189,10 @@ class SlimeRead : HttpSource() {
 
     private fun parseChapterNumber(number: Float): String {
         val cap = number + 1F
-        val num = "%.2f".format(cap)
+        return "%.2f".format(cap)
             .let { if (cap < 10F) "0$it" else it }
             .replace(",00", "")
             .replace(",", ".")
-        return num
     }
 
     override fun getChapterUrl(chapter: SChapter): String {
@@ -157,10 +204,15 @@ class SlimeRead : HttpSource() {
     }
 
     // =============================== Pages ================================
-    override fun pageListRequest(chapter: SChapter) = GET(API_URL + chapter.url, headers)
+    override fun pageListRequest(chapter: SChapter) = GET(apiUrl + chapter.url, headers)
 
     override fun pageListParse(response: Response): List<Page> {
-        val pages = response.parseAs<List<PageListDto>>().flatMap { it.pages }
+        val body = response.body.string()
+        val pages = if (body.startsWith("{")) {
+            json.decodeFromString<Map<String, PageListDto>>(body).values.flatMap { it.pages }
+        } else {
+            json.decodeFromString<List<PageListDto>>(body).flatMap { it.pages }
+        }
 
         return pages.mapIndexed { index, item ->
             Page(index, "", item.url)
@@ -183,7 +235,7 @@ class SlimeRead : HttpSource() {
 
     companion object {
         const val PREFIX_SEARCH = "id:"
-
-        private const val API_URL = "https://ai3.slimeread.com:8443"
+        val FUNCTION_REGEX = """function\s*\(\)\s*\{(?:(?!function)[\s\S])*?slimeread\.com:8443[^\}]*\}""".toRegex(RegexOption.DOT_MATCHES_ALL)
+        val BASEURL_VAL_REGEX = """baseURL\s*:\s*(\w+)""".toRegex()
     }
 }

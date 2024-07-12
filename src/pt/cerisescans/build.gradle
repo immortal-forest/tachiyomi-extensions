@@ -1,0 +1,10 @@
+ext {
+    extName = 'Cerise Scan'
+    extClass = '.CeriseScan'
+    themePkg = 'peachscan'
+    baseUrl = 'https://cerisetoon.com'
+    overrideVersionCode = 40
+    isNsfw = true
+}
+
+apply from: "$rootDir/common.gradle"
