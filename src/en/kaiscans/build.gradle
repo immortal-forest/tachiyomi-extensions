@@ -1,0 +1,10 @@
+ext {
+    extName = 'Umi Scans'
+    extClass = '.UmiScans'
+    themePkg = 'mangathemesia'
+    baseUrl = 'https://umiscans.org'
+    overrideVersionCode = 3
+    isNsfw = true
+}
+
+apply from: "$rootDir/common.gradle"

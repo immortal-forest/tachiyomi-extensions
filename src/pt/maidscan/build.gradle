@@ -1,0 +1,9 @@
+ext {
+    extName = 'Maid Scan'
+    extClass = '.MaidScan'
+    themePkg = 'madara'
+    baseUrl = 'https://maidscans.com'
+    overrideVersionCode = 1
+}
+
+apply from: "$rootDir/common.gradle"

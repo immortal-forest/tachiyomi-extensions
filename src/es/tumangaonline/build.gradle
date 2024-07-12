@@ -1,7 +1,9 @@
 ext {
     extName = 'TuMangaOnline'
     extClass = '.TuMangaOnline'
-    extVersionCode = 49
+    themePkg = 'lectortmo'
+    baseUrl = 'https://visortmo.com'
+    overrideVersionCode = 49
     isNsfw = true
 }
 

@@ -1,0 +1,9 @@
+ext {
+    extName = 'Asura Scans'
+    extClass = '.AsuraScans'
+    themePkg = 'mangathemesia'
+    baseUrl = 'https://asuracomic.net'
+    overrideVersionCode = 4
+}
+
+apply from: "$rootDir/common.gradle"

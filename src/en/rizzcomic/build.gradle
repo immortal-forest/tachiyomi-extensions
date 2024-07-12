@@ -1,11 +1,9 @@
 ext {
     extName = 'Rizz Comic'
     extClass = '.RizzComic'
-    extVersionCode = 3
+    themePkg = 'mangathemesia'
+    baseUrl = 'https://rizzfables.com'
+    overrideVersionCode = 4
 }
 
 apply from: "$rootDir/common.gradle"
-
-dependencies {
-    implementation(project(":lib:randomua"))
-}
