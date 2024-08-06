@@ -205,7 +205,12 @@ class AsuraScans : ParsedHttpSource(), ConfigurableSource {
         description = document.selectFirst("span.font-medium.text-sm")?.text()
         author = document.selectFirst("div.grid > div:has(h3:eq(0):containsOwn(Author)) > h3:eq(1)")?.ownText()
         artist = document.selectFirst("div.grid > div:has(h3:eq(0):containsOwn(Artist)) > h3:eq(1)")?.ownText()
-        genre = document.select("div[class^=space] > div.flex > button.text-white").joinToString { it.ownText() }
+        genre = buildList {
+            document.selectFirst("div.flex:has(h3:eq(0):containsOwn(type)) > h3:eq(1)")
+                ?.ownText()?.let(::add)
+            document.select("div[class^=space] > div.flex > button.text-white")
+                .forEach { add(it.ownText()) }
+        }.joinToString()
         status = parseStatus(document.selectFirst("div.flex:has(h3:eq(0):containsOwn(Status)) > h3:eq(1)")?.ownText())
     }
 
@@ -253,7 +258,7 @@ class AsuraScans : ParsedHttpSource(), ConfigurableSource {
     }
 
     override fun pageListParse(document: Document): List<Page> {
-        return document.select("div > img[alt=chapter]").mapIndexed { i, element ->
+        return document.select("div > img[alt*=chapter]").mapIndexed { i, element ->
             Page(i, imageUrl = element.attr("abs:src"))
         }
     }
