@@ -1,7 +1,7 @@
 ext {
     extName = 'Ancient Comics'
     extClass = '.AncientComics'
-    themePkg = 'mangathemesia'
+    themePkg = 'madara'
     baseUrl = 'https://ancientcomics.com.br'
     overrideVersionCode = 0
 }
