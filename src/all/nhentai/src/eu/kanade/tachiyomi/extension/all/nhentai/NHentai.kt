@@ -220,13 +220,13 @@ open class NHentai(
             thumbnail_url = document.select("#cover > a > img").attr("data-src")
             status = SManga.COMPLETED
             artist = getArtists(document)
-            author = artist
+            author = getGroups(document)
             // Some people want these additional details in description
             description = "Full English and Japanese titles:\n"
                 .plus("$fullTitle\n")
                 .plus("${document.select("div#info h2").text()}\n\n")
                 .plus("Pages: ${getNumPages(document)}\n")
-                .plus("Favorited by: ${document.select("div#info i.fa-heart + span span").text().removeSurrounding("(", ")")}\n")
+                .plus("Favorited by: ${document.select("div#info i.fa-heart ~ span span").text().removeSurrounding("(", ")")}\n")
                 .plus(getTagDescription(document))
             genre = getTags(document)
             update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
