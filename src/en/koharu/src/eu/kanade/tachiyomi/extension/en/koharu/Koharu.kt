@@ -68,25 +68,43 @@ class Koharu : HttpSource(), ConfigurableSource {
         thumbnail_url = book.thumbnail.path
     }
 
-    private fun getImagesByMangaEntry(entry: MangaEntry): ImagesInfo {
+    private fun getImagesByMangaEntry(entry: MangaEntry): Pair<ImagesInfo, String> {
         val data = entry.data
-        val dataKey = when (quality()) {
-            "1600" -> data.`1600` ?: data.`1280` ?: data.`0`
-            "1280" -> data.`1280` ?: data.`1600` ?: data.`0`
-            "980" -> data.`980` ?: data.`1280` ?: data.`0`
-            "780" -> data.`780` ?: data.`980` ?: data.`0`
-            else -> data.`0`
+        val quality = 0
+        fun getIPK(
+            ori: DataKey?,
+            alt1: DataKey?,
+            alt2: DataKey?,
+            alt3: DataKey?,
+            alt4: DataKey?,
+        ): Pair<Int?, String?> {
+            return Pair(
+                ori?.id ?: alt1?.id ?: alt2?.id ?: alt3?.id ?: alt4?.id,
+                ori?.public_key ?: alt1?.public_key ?: alt2?.public_key ?: alt3?.public_key ?: alt4?.public_key,
+            )
         }
-        val realQuality = when (dataKey) {
-            data.`1600` -> "1600"
-            data.`1280` -> "1280"
-            data.`980` -> "980"
-            data.`780` -> "780"
+        val (id, public_key) = when (quality()) {
+            "1600" -> getIPK(data.`1600`, data.`1280`, data.`0`, data.`980`, data.`780`)
+            "1280" -> getIPK(data.`1280`, data.`1600`, data.`0`, data.`980`, data.`780`)
+            "980" -> getIPK(data.`980`, data.`1280`, data.`0`, data.`1600`, data.`780`)
+            "780" -> getIPK(data.`780`, data.`980`, data.`0`, data.`1280`, data.`1600`)
+            else -> getIPK(data.`0`, data.`1600`, data.`1280`, data.`980`, data.`780`)
+        }
+
+        if (id == null || public_key == null) {
+            throw Exception("No Images Found")
+        }
+
+        val realQuality = when (id) {
+            data.`1600`?.id -> "1600"
+            data.`1280`?.id -> "1280"
+            data.`980`?.id -> "980"
+            data.`780`?.id -> "780"
             else -> "0"
         }
 
-        val imagesResponse = client.newCall(GET("$apiBooksUrl/data/${entry.id}/${entry.public_key}/${dataKey.id}/${dataKey.public_key}?v=${entry.updated_at ?: entry.created_at}&w=$realQuality", headers)).execute()
-        val images = imagesResponse.parseAs<ImagesInfo>()
+        val imagesResponse = client.newCall(GET("$apiBooksUrl/data/${entry.id}/${entry.public_key}/$id/$public_key?v=${entry.updated_at ?: entry.created_at}&w=$realQuality", headers)).execute()
+        val images = imagesResponse.parseAs<ImagesInfo>() to realQuality
         return images
     }
 
@@ -121,7 +139,7 @@ class Koharu : HttpSource(), ConfigurableSource {
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = apiBooksUrl.toHttpUrl().newBuilder().apply {
-            val terms = mutableListOf(query.trim())
+            val terms: MutableList<String> = mutableListOf()
 
             filters.forEach { filter ->
                 when (filter) {
@@ -136,18 +154,9 @@ class Koharu : HttpSource(), ConfigurableSource {
 
                     is TextFilter -> {
                         if (filter.state.isNotEmpty()) {
-                            terms += filter.state.split(",").filter(String::isNotBlank).map { tag ->
-                                val trimmed = tag.trim()
-                                buildString {
-                                    if (trimmed.startsWith('-')) {
-                                        append("-")
-                                    }
-                                    append(filter.type)
-                                    append("!:")
-                                    append("\"")
-                                    append(trimmed.lowercase().removePrefix("-"))
-                                    append("\"")
-                                }
+                            val tags = filter.state.split(",").filter(String::isNotBlank).joinToString(",")
+                            if (tags.isNotBlank()) {
+                                terms += "${filter.type}!:" + '"' + tags + '"'
                             }
                         }
                     }
@@ -225,7 +234,7 @@ class Koharu : HttpSource(), ConfigurableSource {
 
         author = (circles.emptyToNull() ?: artists).joinToString { it.capitalizeEach() }
         artist = artists.joinToString { it.capitalizeEach() }
-        genre = (tags + males + females + mixed).joinToString { it.capitalizeEach() }
+        genre = (tags + males + females + mixed + other).joinToString { it.capitalizeEach() }
         description = buildString {
             circles.joinAndCapitalizeEach()?.let {
                 append("Circles: ", it, "\n")
@@ -308,8 +317,8 @@ class Koharu : HttpSource(), ConfigurableSource {
         val mangaEntry = response.parseAs<MangaEntry>()
         val imagesInfo = getImagesByMangaEntry(mangaEntry)
 
-        return imagesInfo.entries.mapIndexed { index, image ->
-            Page(index, imageUrl = "${imagesInfo.base}/${image.path}")
+        return imagesInfo.first.entries.mapIndexed { index, image ->
+            Page(index, imageUrl = "${imagesInfo.first.base}/${image.path}?w=${imagesInfo.second}")
         }
     }
 
