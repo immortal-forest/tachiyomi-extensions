@@ -57,6 +57,9 @@ class AsuraScans : ParsedHttpSource(), ConfigurableSource {
             if (contains("pref_permanent_manga_url_2_en")) {
                 edit().remove("pref_permanent_manga_url_2_en").apply()
             }
+            if (contains("pref_slug_map")) {
+                edit().remove("pref_slug_map").apply()
+            }
         }
     }
 
@@ -192,9 +195,11 @@ class AsuraScans : ParsedHttpSource(), ConfigurableSource {
     override fun mangaDetailsParse(response: Response): SManga {
         if (preferences.dynamicUrl()) {
             val url = response.request.url.toString()
-            val newSlug = url.substringAfter("/series/").substringBefore("/")
-            val absSlug = newSlug.substringBeforeLast("-")
-            preferences.slugMap = preferences.slugMap.apply { put(absSlug, newSlug) }
+            val newSlug = url.substringAfter("/series/", "").substringBefore("/")
+            if (newSlug.isNotEmpty()) {
+                val absSlug = newSlug.substringBeforeLast("-")
+                preferences.slugMap = preferences.slugMap.apply { put(absSlug, newSlug) }
+            }
         }
         return super.mangaDetailsParse(response)
     }
@@ -225,9 +230,11 @@ class AsuraScans : ParsedHttpSource(), ConfigurableSource {
     override fun chapterListParse(response: Response): List<SChapter> {
         if (preferences.dynamicUrl()) {
             val url = response.request.url.toString()
-            val newSlug = url.substringAfter("/series/").substringBefore("/")
-            val absSlug = newSlug.substringBeforeLast("-")
-            preferences.slugMap = preferences.slugMap.apply { put(absSlug, newSlug) }
+            val newSlug = url.substringAfter("/series/", "").substringBefore("/")
+            if (newSlug.isNotEmpty()) {
+                val absSlug = newSlug.substringBeforeLast("-")
+                preferences.slugMap = preferences.slugMap.apply { put(absSlug, newSlug) }
+            }
         }
         return super.chapterListParse(response)
     }
@@ -238,7 +245,9 @@ class AsuraScans : ParsedHttpSource(), ConfigurableSource {
 
     override fun chapterFromElement(element: Element) = SChapter.create().apply {
         setUrlWithoutDomain(element.selectFirst("a")!!.attr("abs:href").toPermSlugIfNeeded())
-        name = element.selectFirst("h3")!!.text()
+        val chNumber = element.selectFirst("h3 > a")!!.ownText()
+        val chTitle = element.select("h3 > a > span").joinToString(" ") { it.ownText() }
+        name = if (chTitle.isBlank()) chNumber else "$chNumber - $chTitle"
         date_upload = try {
             val text = element.selectFirst("h3 + h3")!!.ownText()
             val cleanText = text.replace(CLEAN_DATE_REGEX, "$1")
@@ -258,9 +267,11 @@ class AsuraScans : ParsedHttpSource(), ConfigurableSource {
     }
 
     override fun pageListParse(document: Document): List<Page> {
-        return document.select("div > img[alt*=chapter]").mapIndexed { i, element ->
-            Page(i, imageUrl = element.attr("abs:src"))
-        }
+        val scriptData = document.select("script:containsData(self.__next_f.push)")
+            .joinToString("") { it.data().substringAfter("\"").substringBeforeLast("\"") }
+        val pagesData = PAGES_REGEX.find(scriptData)?.groupValues?.get(1) ?: throw Exception("Failed to find chapter pages")
+        val pageList = json.decodeFromString<List<PageDto>>(pagesData.unescape()).sortedBy { it.order }
+        return pageList.mapIndexed { i, page -> Page(i, imageUrl = page.url) }
     }
 
     override fun imageUrlParse(document: Document) = throw UnsupportedOperationException()
@@ -304,11 +315,17 @@ class AsuraScans : ParsedHttpSource(), ConfigurableSource {
         return this.replace(slug, absSlug)
     }
 
+    private fun String.unescape(): String {
+        return UNESCAPE_REGEX.replace(this, "$1")
+    }
+
     companion object {
+        private val UNESCAPE_REGEX = """\\(.)""".toRegex()
+        private val PAGES_REGEX = """\\"pages\\":(\[.*?])""".toRegex()
         private val CLEAN_DATE_REGEX = """(\d+)(st|nd|rd|th)""".toRegex()
         private val OLD_FORMAT_MANGA_REGEX = """^/manga/(\d+-)?([^/]+)/?$""".toRegex()
         private val OLD_FORMAT_CHAPTER_REGEX = """^/(\d+-)?[^/]*-chapter-\d+(-\d+)*/?$""".toRegex()
-        private const val PREF_SLUG_MAP = "pref_slug_map"
+        private const val PREF_SLUG_MAP = "pref_slug_map_2"
         private const val PREF_DYNAMIC_URL = "pref_dynamic_url"
     }
 }
