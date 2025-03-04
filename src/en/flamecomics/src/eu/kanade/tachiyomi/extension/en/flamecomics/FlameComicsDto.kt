@@ -70,6 +70,8 @@ class Series(
     val altTitles: String?,
     val description: String,
     val cover: String,
+    val type: String,
+    val tags: List<String>?,
     val author: String?,
     val status: String,
     val series_id: Int,

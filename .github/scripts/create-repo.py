@@ -1,4 +1,3 @@
-import html
 import json
 import os
 import re
@@ -41,7 +40,7 @@ for apk in REPO_APK_DIR.iterdir():
     ).decode()
 
     package_info = next(x for x in badging.splitlines() if x.startswith("package: "))
-    package_name = PACKAGE_NAME_REGEX.search(package_info).group(1)    
+    package_name = PACKAGE_NAME_REGEX.search(package_info).group(1)
     application_icon = APPLICATION_ICON_320_REGEX.search(badging).group(1)
 
     with ZipFile(apk) as z, z.open(application_icon) as i, (
@@ -105,8 +104,8 @@ with (REPO_DIR / "index.json").open("w", encoding="utf-8") as f:
     print(index_data_str)
     f.write(index_data_str)
 
-with (REPO_DIR / "index.min.json").open("w", encoding="utf-8") as f:
-    json.dump(index_min_data, f, ensure_ascii=False, separators=(",", ":"))
+with REPO_DIR.joinpath("index.min.json").open("w", encoding="utf-8") as index_file:
+    json.dump(index_min_data, index_file, ensure_ascii=False, separators=(",", ":"))
 
 with (REPO_DIR / "index.html").open("w", encoding="utf-8") as f:
     f.write('<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<title>apks</title>\n</head>\n<body>\n<pre>\n')
