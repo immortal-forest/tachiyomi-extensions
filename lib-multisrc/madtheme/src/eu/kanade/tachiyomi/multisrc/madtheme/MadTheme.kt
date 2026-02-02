@@ -39,7 +39,22 @@ abstract class MadTheme(
 
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
         .rateLimit(1, 1, TimeUnit.SECONDS)
-        .build()
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val url = request.url
+            val response = chain.proceed(request)
+            if (!response.isSuccessful && url.fragment == "image-request") {
+                response.close()
+                val newUrl = url.newBuilder()
+                    .host("sb.mbcdn.xyz")
+                    .encodedPath(url.encodedPath.replaceFirst("/res/", "/"))
+                    .fragment(null)
+                    .build()
+
+                return@addInterceptor chain.proceed(request.newBuilder().url(newUrl).build())
+            }
+            response
+        }.build()
 
     protected open val useLegacyApi = false
 
@@ -126,7 +141,7 @@ abstract class MadTheme(
         title = element.selectFirst("a")!!.attr("title")
         element.selectFirst(".summary")?.text()?.let { description = it }
         element.select(".genres > *").joinToString { it.text() }.takeIf { it.isNotEmpty() }?.let { genre = it }
-        thumbnail_url = element.selectFirst("img")!!.attr("abs:data-src")
+        thumbnail_url = element.selectFirst("img")!!.attr("abs:data-src") + "#image-request"
     }
 
     /*
@@ -140,7 +155,7 @@ abstract class MadTheme(
         title = document.selectFirst(".detail h1")!!.text()
         author = document.select(".detail .meta > p > strong:contains(Authors) ~ a").joinToString { it.text().trim(',', ' ') }
         genre = document.select(".detail .meta > p > strong:contains(Genres) ~ a").joinToString { it.text().trim(',', ' ') }
-        thumbnail_url = document.selectFirst("#cover img")!!.attr("abs:data-src")
+        thumbnail_url = document.selectFirst("#cover img")!!.attr("abs:data-src") + "#image-request"
 
         val altNames = document.selectFirst(".detail h2")?.text()
             ?.split(',', ';')
@@ -327,6 +342,10 @@ abstract class MadTheme(
         } else {
             super.pageListRequest(chapter)
         }
+    }
+
+    override fun imageRequest(page: Page): Request {
+        return GET("${page.imageUrl}#image-request", headers)
     }
 
     override fun imageUrlParse(document: Document): String =

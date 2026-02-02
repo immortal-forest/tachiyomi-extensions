@@ -1,10 +1,14 @@
 package eu.kanade.tachiyomi.extension.ru.comx
 
+import android.content.SharedPreferences
 import android.webkit.CookieManager
+import android.widget.Toast
+import androidx.preference.EditTextPreference
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -13,6 +17,7 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.getPreferences
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -27,7 +32,6 @@ import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -39,20 +43,44 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.text.replace
 
-class ComX : ParsedHttpSource() {
-
+class ComX : ParsedHttpSource(), ConfigurableSource {
     private val json: Json by injectLazy()
+
+    override val id = 1114173092141608635
 
     override val name = "Com-X"
 
-    override val baseUrl = "https://com-x.life"
+    private val preferences: SharedPreferences = getPreferences {
+        this.getString(DOMAIN_PREF, DOMAIN_DEFAULT)?.let { domain ->
+            if (!domain.matches(URL_REGEX)) {
+                this.edit()
+                    .putString(DOMAIN_PREF, DOMAIN_DEFAULT)
+                    .apply()
+            }
+        }
+        this.getString(DEFAULT_DOMAIN_PREF, null).let { prefDefaultDomain ->
+            if (prefDefaultDomain != DOMAIN_DEFAULT) {
+                this.edit()
+                    .putString(DOMAIN_PREF, DOMAIN_DEFAULT)
+                    .putString(DEFAULT_DOMAIN_PREF, DOMAIN_DEFAULT)
+                    .apply()
+            }
+        }
+    }
+
+    override val baseUrl = preferences.getString(DOMAIN_PREF, DOMAIN_DEFAULT)!!
 
     override val lang = "ru"
 
     override val supportsLatest = true
+
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
     private val cookieManager by lazy { CookieManager.getInstance() }
-    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
+
+    override val client = network.cloudflareClient.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .rateLimit(3)
@@ -100,16 +128,27 @@ class ComX : ParsedHttpSource() {
         )
         .addInterceptor { chain ->
             val originalRequest = chain.request()
-            val response = chain.proceed(originalRequest)
+            var response = chain.proceed(originalRequest)
             if (response.code == 404 && response.asJsoup().toString().contains("Protected by Batman")) {
                 throw IOException("Antibot, попробуйте пройти капчу в WebView")
+            }
+            val imgPreload = baseUrl.replace(Regex("^https?://"), "img.") // https://img.com-x.life
+            if (response.code == 403 &&
+                (originalRequest.url.toString().contains("/comix/")) &&
+                !(originalRequest.url.toString().contains(imgPreload))
+            ) {
+                val newUrl = originalRequest.url
+                    .newBuilder()
+                    .host(imgPreload)
+                    .build()
+
+                val newRequest = originalRequest.newBuilder().url(newUrl).headers(headers).build()
+                response.close()
+                response = chain.proceed(newRequest)
             }
             response
         }
         .build()
-
-    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
-        .add("Referer", baseUrl)
 
     // Popular
     override fun popularMangaRequest(page: Int): Request = searchMangaRequest(page, "", getFilterList())
@@ -319,7 +358,7 @@ class ComX : ParsedHttpSource() {
             if (isEvent) {
                 chapter.name = chapter.chapter_number.toInt().toString() + " " + chapter.name
             }
-            chapter.setUrlWithoutDomain("/readcomix/" + data["news_id"] + "/" + it.jsonObject["id"]!!.jsonPrimitive.content + ".html")
+            chapter.setUrlWithoutDomain("/reader/" + data["news_id"] + "/" + it.jsonObject["id"]!!.jsonPrimitive.content)
             chapter
         }
         return chapters ?: emptyList()
@@ -337,16 +376,21 @@ class ComX : ParsedHttpSource() {
             throw Exception("Комикс 18+ (что-то сломалось)")
         }
 
-        val baseImgUrl = "https://img.com-x.life/comix/"
+        val imageUrl = preferences.getString(FORCE_IMG_DOMAIN_PREF, null)?.ifBlank { null }
+            ?: IMG_DOMAIN_REGEX.find(html)?.groupValues?.get(1)?.let { "https://$it" }
+
+        if (imageUrl.isNullOrBlank()) {
+            throw Exception("Не удалось определить домен картинок. Попробуйте задать вручную в настройках")
+        }
 
         val beginTag = "\"images\":["
         val beginIndex = html.indexOf(beginTag)
         val endIndex = html.indexOf("]", beginIndex)
 
-        val urls: List<String> = html.substring(beginIndex + beginTag.length, endIndex)
+        val urls = html.substring(beginIndex + beginTag.length, endIndex)
             .split(',').map {
                 val img = it.replace("\\", "").replace("\"", "")
-                baseImgUrl + img
+                "$imageUrl/comix/$img"
             }
 
         val pages = mutableListOf<Page>()
@@ -399,18 +443,18 @@ class ComX : ParsedHttpSource() {
 
     override fun getFilterList() = FilterList(
         OrderBy(),
-        PubList(getPubList()),
-        GenreList(getGenreList()),
-        TypeList(getTypeList()),
-        AgeList(getAgeList()),
+        PubList(pubList),
+        GenreList(genreList),
+        TypeList(typeList),
+        AgeList(ageList),
     )
 
-    private fun getAgeList() = listOf(
+    private val ageList = listOf(
         CheckFilter("Для всех", "1"),
         CheckFilter("18+", "2"),
     )
 
-    private fun getTypeList() = listOf(
+    private val typeList = listOf(
         CheckFilter("События в комиксах", "1"),
         CheckFilter("Аннуалы", "3"),
         CheckFilter("Артбук", "4"),
@@ -430,7 +474,7 @@ class ComX : ParsedHttpSource() {
         CheckFilter("Энциклопедия", "36"),
     )
 
-    private fun getPubList() = listOf(
+    private val pubList = listOf(
         CheckFilter("Манга", "3"),
         CheckFilter("Маньхуа", "45"),
         CheckFilter("Манхва", "44"),
@@ -453,7 +497,7 @@ class ComX : ParsedHttpSource() {
         CheckFilter("Zenescope", "51"),
     )
 
-    private fun getGenreList() = listOf(
+    private val genreList = listOf(
         CheckFilter("Автобиографическая новелла", "9"),
         CheckFilter("Альтернативная история", "10"),
         CheckFilter("Антиутопия", "11"),
@@ -557,7 +601,53 @@ class ComX : ParsedHttpSource() {
         CheckFilter("Ёнкома", "121"),
     )
 
+    override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = DOMAIN_PREF
+            title = "Домен"
+            summary = baseUrl + "\n\nПо умолчанию: $DOMAIN_DEFAULT"
+            setDefaultValue(DOMAIN_DEFAULT)
+            setOnPreferenceChangeListener { _, newValue ->
+                if (!newValue.toString().matches(URL_REGEX)) {
+                    val warning = "Домен должен содаржать https:// или http://"
+                    Toast.makeText(screen.context, warning, Toast.LENGTH_LONG).show()
+                    return@setOnPreferenceChangeListener false
+                }
+                val warning = "Для смены домена необходимо перезапустить приложение с полной остановкой."
+                Toast.makeText(screen.context, warning, Toast.LENGTH_LONG).show()
+                true
+            }
+        }.let(screen::addPreference)
+
+        EditTextPreference(screen.context).apply {
+            key = FORCE_IMG_DOMAIN_PREF
+            title = "Домен картинок"
+            summary = "Если изображения не грузяться очистите «Кэш приложения» и всевозможные данные в настройках приложения  (Настройки -> Дополнительно) \nи перезапустите приложение с полной остановкой" +
+                "\n\nНастройка переопределяет домен картинок." +
+                "\nПо умолчанию домент картинок берётся автоматически." +
+                "\nЧтобы узнать домен изображения откройте главу в браузере и после долгим тапом откройте изображение в новом окне."
+            setDefaultValue("")
+            setOnPreferenceChangeListener { _, newValue ->
+                val warning = "Для смены домена необходимо перезапустить приложение с полной остановкой."
+                Toast.makeText(screen.context, warning, Toast.LENGTH_LONG).show()
+                true
+            }
+        }.let(screen::addPreference)
+    }
+
     companion object {
         private val simpleDateFormat by lazy { SimpleDateFormat("dd.MM.yyyy", Locale.US) }
+
+        private const val DOMAIN_DEFAULT = "https://com-x.life"
+
+        private const val DEFAULT_DOMAIN_PREF = "DEFAULT_DOMAIN_PREF"
+
+        private const val DOMAIN_PREF = "DOMAIN_PREF"
+
+        private const val FORCE_IMG_DOMAIN_PREF = "FORCE_IMG_DOMAIN_PREF"
+
+        private val URL_REGEX = Regex("^https?://.+")
+
+        private val IMG_DOMAIN_REGEX = "\"host\":\"(.+?)\"".toRegex()
     }
 }

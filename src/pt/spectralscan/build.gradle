@@ -1,10 +1,8 @@
 ext {
-    extName = 'Spectral Scan'
-    extClass = '.SpectralScan'
-    themePkg = 'yuyu'
-    baseUrl = 'https://spectralscan.xyz'
-    overrideVersionCode = 41
-    isNsfw = false
+    extName = 'Nexus Scan'
+    extClass = '.NexusScan'
+    extVersionCode = 58
+    isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"

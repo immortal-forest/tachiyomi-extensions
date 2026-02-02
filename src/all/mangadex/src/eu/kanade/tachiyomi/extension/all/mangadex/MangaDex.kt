@@ -37,6 +37,7 @@ import okhttp3.CacheControl
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import rx.Observable
@@ -71,9 +72,8 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
         return builder
     }
 
-    override val client = network.client.newBuilder()
+    override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
-        .addInterceptor(MdAtHomeReportInterceptor(network.client, headers))
         .build()
 
     // Popular manga section
@@ -181,9 +181,21 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
     // Search manga section
 
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
+        var newQuery = query
+        val url = query.trim().toHttpUrlOrNull()
+        if (url != null && url.host.endsWith("mangadex.org")) {
+            val searchPrefix = url.pathSegments.firstOrNull()?.let { MDConstants.pathToSearchPrefix[it] }
+            if (searchPrefix != null) {
+                val match = MDConstants.uuidRegex.find(url.toString())
+                if (match != null) {
+                    newQuery = searchPrefix + match.value
+                }
+            }
+        }
+
         return when {
-            query.startsWith(MDConstants.prefixChSearch) ->
-                getMangaIdFromChapterId(query.removePrefix(MDConstants.prefixChSearch))
+            newQuery.startsWith(MDConstants.prefixChSearch) ->
+                getMangaIdFromChapterId(newQuery.removePrefix(MDConstants.prefixChSearch))
                     .flatMap { mangaId ->
                         super.fetchSearchManga(
                             page = page,
@@ -192,28 +204,28 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
                         )
                     }
 
-            query.startsWith(MDConstants.prefixUsrSearch) ->
+            newQuery.startsWith(MDConstants.prefixUsrSearch) ->
                 client
                     .newCall(
                         request = searchMangaUploaderRequest(
                             page = page,
-                            uploader = query.removePrefix(MDConstants.prefixUsrSearch),
+                            uploader = newQuery.removePrefix(MDConstants.prefixUsrSearch),
                         ),
                     )
                     .asObservableSuccess()
                     .map { latestUpdatesParse(it) }
 
-            query.startsWith(MDConstants.prefixListSearch) ->
+            newQuery.startsWith(MDConstants.prefixListSearch) ->
                 client
                     .newCall(
                         request = searchMangaListRequest(
-                            list = query.removePrefix(MDConstants.prefixListSearch),
+                            list = newQuery.removePrefix(MDConstants.prefixListSearch),
                         ),
                     )
                     .asObservableSuccess()
                     .map { searchMangaListParse(it, page, filters) }
 
-            else -> super.fetchSearchManga(page, query.trim(), filters)
+            else -> super.fetchSearchManga(page, newQuery.trim(), filters)
         }
     }
 
@@ -510,6 +522,7 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
             .addQueryParameter("contentRating[]", MDConstants.allContentRatings)
             .addQueryParameter("excludedGroups[]", preferences.blockedGroups)
             .addQueryParameter("excludedUploaders[]", preferences.blockedUploaders)
+            .addQueryParameter("includeUnavailable", if (preferences.includeUnavailable) "1" else "0")
             .build()
 
         return GET(url, headers, CacheControl.FORCE_NETWORK)
@@ -784,6 +797,21 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
             }
         }
 
+        val includeUnavailablePref = SwitchPreferenceCompat(screen.context).apply {
+            key = MDConstants.getIncludeUnavailablePrefKey(dexLang)
+            title = helper.intl["include_unavailable"]
+            summary = helper.intl["include_unavailable_summary"]
+            setDefaultValue(false)
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val checkValue = newValue as Boolean
+
+                preferences.edit()
+                    .putBoolean(MDConstants.getIncludeUnavailablePrefKey(dexLang), checkValue)
+                    .commit()
+            }
+        }
+
         screen.addPreference(coverQualityPref)
         screen.addPreference(tryUsingFirstVolumeCoverPref)
         screen.addPreference(dataSaverPref)
@@ -791,6 +819,7 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
         screen.addPreference(altTitlesInDescPref)
         screen.addPreference(preferExtensionLangTitlePref)
         screen.addPreference(finalChapterInDescPref)
+        screen.addPreference(includeUnavailablePref)
         screen.addPreference(contentRatingPref)
         screen.addPreference(originalLanguagePref)
         screen.addPreference(blockedGroupsPref)
@@ -874,6 +903,9 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
 
     private val SharedPreferences.finalChapterInDesc
         get() = getBoolean(MDConstants.getFinalChapterInDescPrefKey(dexLang), true)
+
+    private val SharedPreferences.includeUnavailable
+        get() = getBoolean(MDConstants.getIncludeUnavailablePrefKey(dexLang), false)
 
     /**
      * Previous versions of the extension allowed invalid UUID values to be stored in the

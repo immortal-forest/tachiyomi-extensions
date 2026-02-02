@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -26,7 +27,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class HenChan : MultiChan("HenChan", "https://xxxxx.hentaichan.live", "ru"), ConfigurableSource {
+class HenChan : MultiChan("HenChan", "https://xxl.hentaichan.live", "ru"), ConfigurableSource {
 
     override val id = 5504588601186153612
 
@@ -36,11 +37,17 @@ class HenChan : MultiChan("HenChan", "https://xxxxx.hentaichan.live", "ru"), Con
 
     override val baseUrl = domain
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/manga/newest?offset=${20 * (page - 1)}")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/manga/newest?offset=${20 * (page - 1)}", headers)
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = if (query.isNotEmpty()) {
-            "$baseUrl/?do=search&subaction=search&story=$query&search_start=$page"
+            baseUrl.toHttpUrl().newBuilder()
+                .addQueryParameter("do", "search")
+                .addQueryParameter("subaction", "search")
+                .addQueryParameter("story", query)
+                .addQueryParameter("search_start", page.toString())
+                .build()
+                .toString()
         } else {
             var genres = ""
             var order = ""
@@ -497,6 +504,6 @@ class HenChan : MultiChan("HenChan", "https://xxxxx.hentaichan.live", "ru"), Con
 
     companion object {
         private const val DOMAIN_TITLE = "Домен"
-        private const val DOMAIN_DEFAULT = "https://xxxxx.hentaichan.live"
+        private const val DOMAIN_DEFAULT = "https://xxl.hentaichan.live"
     }
 }

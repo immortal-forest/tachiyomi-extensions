@@ -13,14 +13,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import org.jsoup.select.Elements
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
 class BacaKomik : ParsedHttpSource() {
     override val name = "BacaKomik"
-    override val baseUrl = "https://bacakomik.one"
+    override val baseUrl = "https://bacakomik.my"
     override val lang = "id"
     override val supportsLatest = true
     private val dateFormat: SimpleDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
@@ -34,12 +33,14 @@ class BacaKomik : ParsedHttpSource() {
         .rateLimit(12, 3)
         .build()
 
+    private fun pagePath(page: Int) = if (page > 1) "page/$page/" else ""
+
     override fun popularMangaRequest(page: Int): Request {
-        return GET("$baseUrl/daftar-komik/page/$page/?order=popular", headers)
+        return GET("$baseUrl/daftar-komik/${pagePath(page)}?order=popular", headers)
     }
 
     override fun latestUpdatesRequest(page: Int): Request {
-        return GET("$baseUrl/daftar-komik/page/$page/?order=update", headers)
+        return GET("$baseUrl/daftar-komik/${pagePath(page)}?order=update", headers)
     }
 
     override fun popularMangaSelector() = "div.animepost"
@@ -57,7 +58,7 @@ class BacaKomik : ParsedHttpSource() {
         val manga = SManga.create()
         manga.setUrlWithoutDomain(element.select("div.animposx > a").first()!!.attr("href"))
         manga.title = element.select(".animposx .tt h4").text()
-        manga.thumbnail_url = element.select("div.limit img").imgAttr()
+        manga.thumbnail_url = element.selectFirst("div.limit img")?.imgAttr()
 
         return manga
     }
@@ -66,7 +67,6 @@ class BacaKomik : ParsedHttpSource() {
         val builtUrl = if (page == 1) "$baseUrl/daftar-komik/" else "$baseUrl/daftar-komik/page/$page/?order="
         val url = builtUrl.toHttpUrl().newBuilder()
         url.addQueryParameter("title", query)
-        url.addQueryParameter("page", page.toString())
         filters.forEach { filter ->
             when (filter) {
                 is AuthorFilter -> {
@@ -114,7 +114,7 @@ class BacaKomik : ParsedHttpSource() {
         manga.genre = genres.joinToString(", ")
         manga.status = parseStatus(document.select(".infox .spe span:contains(Status)").text())
         manga.description = descElement.select("p").text().substringAfter("bercerita tentang ")
-        manga.thumbnail_url = document.select(".thumb > img:nth-child(1)").imgAttr()
+        manga.thumbnail_url = document.selectFirst(".thumb > img:nth-child(1)")?.imgAttr()
         return manga
     }
 
@@ -328,8 +328,6 @@ class BacaKomik : ParsedHttpSource() {
         hasAttr("data-src") -> attr("abs:data-src")
         else -> attr("abs:src")
     }
-
-    private fun Elements.imgAttr(): String = this.first()!!.imgAttr()
 
     private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) :
         Filter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {

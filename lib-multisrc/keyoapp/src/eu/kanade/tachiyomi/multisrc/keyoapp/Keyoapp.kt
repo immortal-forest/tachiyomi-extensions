@@ -59,7 +59,16 @@ abstract class Keyoapp(
 
     override fun popularMangaRequest(page: Int): Request = GET(baseUrl, headers)
 
-    override fun popularMangaSelector(): String = "div.flex-col div.grid > div.group.border"
+    open val popularMangaTitleSelector = listOf(
+        "Popular",
+        "Popularie",
+        "Trending",
+    )
+
+    override fun popularMangaSelector(): String = selector(
+        "div:contains(%s) + div .group.overflow-hidden.grid",
+        popularMangaTitleSelector,
+    )
 
     override fun popularMangaFromElement(element: Element): SManga = SManga.create().apply {
         thumbnail_url = element.getImageUrl("*[style*=background-image]")
@@ -206,7 +215,9 @@ abstract class Keyoapp(
     protected open val statusSelector: String = "div:has(span:containsOwn(Status)) ~ div"
     protected open val authorSelector: String = "div:has(span:containsOwn(Author)) ~ div"
     protected open val artistSelector: String = "div:has(span:containsOwn(Artist)) ~ div"
-    protected open val genreSelector: String = "div:has(span:containsOwn(Type)) ~ div"
+    protected open val genreSelector: String = "div.grid:has(>h1) > div > a:not([title='Status'])"
+
+    protected open val typeSelector: String = "div:has(span:containsOwn(Type)) ~ div"
     protected open val dateSelector: String = ".text-xs"
 
     override fun mangaDetailsParse(document: Document): SManga = SManga.create().apply {
@@ -217,16 +228,16 @@ abstract class Keyoapp(
         author = document.selectFirst(authorSelector)?.text()
         artist = document.selectFirst(artistSelector)?.text()
         genre = buildList {
-            document.selectFirst(genreSelector)?.text()?.replaceFirstChar {
+            document.selectFirst(typeSelector)?.text()?.replaceFirstChar {
                 if (it.isLowerCase()) {
                     it.titlecase(
-                        Locale.getDefault(),
+                        Locale.ENGLISH,
                     )
                 } else {
                     it.toString()
                 }
             }.let(::add)
-            document.select("div.grid:has(>h1) > div > a").forEach { add(it.text()) }
+            document.select(genreSelector).forEach { add(it.text()) }
         }.joinToString()
     }
 
@@ -242,7 +253,7 @@ abstract class Keyoapp(
 
     override fun chapterListSelector(): String {
         if (!preferences.showPaidChapters) {
-            return "#chapters > a:not(:has(.text-sm span:matches(Upcoming))):not(:has(img[src*=Coin.svg]))"
+            return "#chapters > a:not(:has(.text-sm span:matches(Upcoming))):not(:has(img[alt~=Coin]))"
         }
         return "#chapters > a:not(:has(.text-sm span:matches(Upcoming)))"
     }
@@ -354,6 +365,10 @@ abstract class Keyoapp(
             "year" in this -> now.add(Calendar.YEAR, -relativeDate) // parse: "2 years ago"
         }
         return now.timeInMillis
+    }
+
+    private fun selector(selector: String, contains: List<String>): String {
+        return contains.joinToString { selector.replace("%s", it) }
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

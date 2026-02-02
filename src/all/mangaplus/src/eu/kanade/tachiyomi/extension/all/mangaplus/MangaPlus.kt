@@ -48,7 +48,7 @@ class MangaPlus(
         .add("User-Agent", USER_AGENT)
         .add("SESSION-TOKEN", UUID.randomUUID().toString())
 
-    override val client: OkHttpClient = network.client.newBuilder()
+    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
         .addInterceptor(::imageIntercept)
         .addInterceptor(::thumbnailIntercept)
         .rateLimitHost(API_URL.toHttpUrl(), 1)
@@ -123,8 +123,7 @@ class MangaPlus(
         }
     }
 
-    override fun latestUpdatesRequest(page: Int) =
-        GET("$API_URL/web/web_homeV4?lang=$internalLang&clang=$internalLang&format=json", headers)
+    override fun latestUpdatesRequest(page: Int) = GET("$API_URL/home_v4?lang=$internalLang&clang=$internalLang&format=json", headers)
 
     override fun latestUpdatesParse(response: Response): MangasPage {
         val result = response.asMangaPlusResponse()
@@ -133,26 +132,16 @@ class MangaPlus(
             result.error!!.langPopup(langCode)?.body ?: intl["unknown_error"]
         }
 
-        directory = result.success.webHomeViewV4!!.groups
-            .flatMap(UpdatedTitleV2Group::titleGroups)
-            .flatMap(OriginalTitleGroup::titles)
-            .map(UpdatedTitle::title)
-            .filter { it.language == langCode }
-            .distinctBy(Title::titleId)
+        directory =
+            result.success.homeViewV3!!
+                .groups
+                .flatMap(UpdatedTitleV2Group::titleGroups)
+                .flatMap(OriginalTitleGroup::titles)
+                .map(UpdatedTitle::title)
+                .filter { it.language == langCode }
+                .distinctBy(Title::titleId)
 
         titleCache.putAll(directory.associateBy(Title::titleId))
-        titleCache.putAll(
-            result.success.webHomeViewV4.rankedTitles
-                .flatMap(RankedTitle::titles)
-                .filter { it.language == langCode }
-                .associateBy(Title::titleId),
-        )
-        titleCache.putAll(
-            result.success.webHomeViewV4.featuredTitleLists
-                .flatMap(FeaturedTitleList::featuredTitles)
-                .filter { it.language == langCode }
-                .associateBy(Title::titleId),
-        )
 
         return parseDirectory(1)
     }

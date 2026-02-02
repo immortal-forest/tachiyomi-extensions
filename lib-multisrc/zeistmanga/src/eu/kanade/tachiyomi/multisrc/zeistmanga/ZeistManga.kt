@@ -132,6 +132,7 @@ abstract class ZeistManga(
     protected open val statusSelectorList = listOf(
         "Status",
         "Estado",
+        "الحالة",
     )
 
     protected open val authorSelectorList = listOf(
@@ -154,6 +155,7 @@ abstract class ZeistManga(
     protected open val mangaDetailsSelectorAuthor = "span#author"
     protected open val mangaDetailsSelectorArtist = "span#artist"
     protected open val mangaDetailsSelectorAltName = "header > p"
+    protected open val mangaDetailsSelectorStatus = "span[data-status]"
     protected open val mangaDetailsSelectorInfo = ".y6x11p"
     protected open val mangaDetailsSelectorInfoTitle = "strong"
     protected open val mangaDetailsSelectorInfoDescription = "span.dt"
@@ -175,6 +177,7 @@ abstract class ZeistManga(
                 .joinToString { it.text() }
             author = profileManga.selectFirst(mangaDetailsSelectorAuthor)?.text()
             artist = profileManga.selectFirst(mangaDetailsSelectorArtist)?.text()
+            status = parseStatus(profileManga.selectFirst(mangaDetailsSelectorStatus)?.text() ?: "")
 
             val infoElement = profileManga.select(mangaDetailsSelectorInfo)
             infoElement.forEach { element ->
@@ -396,12 +399,15 @@ abstract class ZeistManga(
         "ativo",
         "lançando",
         "مستمر",
+        "مستمرة",
     )
 
     protected open val statusCompletedList = listOf(
         "completed",
         "completo",
         "finalizado",
+        "مكتمل",
+        "مكتملة",
     )
 
     protected open val statusHiatusList = listOf(
